@@ -74,6 +74,15 @@ Project docs index:
 
 - [docs/index.md](/Users/Apple/dev/os/mann/Substrata/docs/index.md)
 
+## Open Source Standards
+
+- Contribution guide: [CONTRIBUTING.md](/Users/Apple/dev/os/mann/Substrata/CONTRIBUTING.md)
+- Code of conduct: [CODE_OF_CONDUCT.md](/Users/Apple/dev/os/mann/Substrata/CODE_OF_CONDUCT.md)
+- Security policy: [SECURITY.md](/Users/Apple/dev/os/mann/Substrata/SECURITY.md)
+- Support and versioning policy: [docs/support.md](/Users/Apple/dev/os/mann/Substrata/docs/support.md)
+- Maintainer and triage guidance: [docs/maintainers.md](/Users/Apple/dev/os/mann/Substrata/docs/maintainers.md) and [docs/triage.md](/Users/Apple/dev/os/mann/Substrata/docs/triage.md)
+- Changelog: [CHANGELOG.md](/Users/Apple/dev/os/mann/Substrata/CHANGELOG.md)
+
 ## Direction
 
 Substrata is being designed around a few principles:
