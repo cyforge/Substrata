@@ -34,11 +34,45 @@ Requirements:
 
 - Python 3.11+
 
-Run the current entry point:
+Install the project and development tools:
+
+```bash
+python -m pip install -e ".[dev]"
+```
+
+Run the package entry point:
+
+```bash
+python -m substrata
+```
+
+Run the compatibility entry point:
 
 ```bash
 python main.py
 ```
+
+Run the minimal example app:
+
+```bash
+python examples/basic_app.py
+```
+
+Run tests:
+
+```bash
+pytest
+```
+
+Run lint checks:
+
+```bash
+ruff check .
+```
+
+Project docs index:
+
+- [docs/index.md](/Users/Apple/dev/os/mann/Substrata/docs/index.md)
 
 ## Direction
 
