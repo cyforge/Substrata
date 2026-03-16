@@ -15,7 +15,10 @@ class ExampleApplication:
     def startup_summary(self) -> str:
         return (
             "Substrata foundation ready "
-            f"(environment={self.settings.environment.value}, network={self.settings.network.value})"
+            "("
+            f"environment={self.settings.environment.value}, "
+            f"network={self.settings.network.value}"
+            ")"
         )
 
     def run(self) -> str:

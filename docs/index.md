@@ -5,7 +5,11 @@ This directory is the starting point for committed project documentation.
 ## Current Docs
 
 - Repository overview: [`README.md`](/Users/Apple/dev/os/mann/Substrata/README.md)
-- Development and issue publishing workflow: [`README.md`](/Users/Apple/dev/os/mann/Substrata/README.md)
+- Development guide: [`docs/development.md`](/Users/Apple/dev/os/mann/Substrata/docs/development.md)
+- Issue-writing guidance: [`docs/issue-writing.md`](/Users/Apple/dev/os/mann/Substrata/docs/issue-writing.md)
+- Triage guidance: [`docs/triage.md`](/Users/Apple/dev/os/mann/Substrata/docs/triage.md)
+- Maintainer guide: [`docs/maintainers.md`](/Users/Apple/dev/os/mann/Substrata/docs/maintainers.md)
+- Support and versioning policy: [`docs/support.md`](/Users/Apple/dev/os/mann/Substrata/docs/support.md)
 
 ## Planned Doc Areas
 
