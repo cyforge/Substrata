@@ -21,3 +21,11 @@ class ValidationError(SubstrataError):
 
 class IntegrationError(SubstrataError):
     """Raised when an external dependency or integration fails."""
+
+
+__all__ = [
+    "ConfigurationError",
+    "IntegrationError",
+    "SubstrataError",
+    "ValidationError",
+]

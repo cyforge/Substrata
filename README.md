@@ -59,6 +59,10 @@ Run the minimal example app:
 python examples/basic_app.py
 ```
 
+The example path calls into the installed `substrata` package rather than local
+script-only logic, so it exercises the same config and logging bootstrap used by
+the package entrypoints.
+
 Run tests:
 
 ```bash

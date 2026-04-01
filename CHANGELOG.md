@@ -13,3 +13,4 @@ in [docs/support.md](/Users/Apple/dev/os/mann/Substrata/docs/support.md).
 - Initial repository scaffolding and package foundation for the Substrata SDK.
 - Package subdirectories for future models, services, and integrations.
 - Expanded runtime settings for horizon URL, signer backend, and default asset configuration.
+- Explicit exports and tests for shared constants, foundation errors, logging, and example wiring.

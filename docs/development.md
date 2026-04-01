@@ -31,6 +31,10 @@ Run the minimal example app:
 python examples/basic_app.py
 ```
 
+The example imports `run_example_application` from the package so contributors
+can verify package-aware wiring without depending on root-level implementation
+details.
+
 Run tests:
 
 ```bash
