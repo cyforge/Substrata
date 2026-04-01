@@ -11,3 +11,4 @@ in [docs/support.md](/Users/Apple/dev/os/mann/Substrata/docs/support.md).
 ### Added
 
 - Initial repository scaffolding and package foundation for the Substrata SDK.
+- Architecture notes index for ADRs and implementation references.

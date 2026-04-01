@@ -73,6 +73,7 @@ ruff check .
 Project docs index:
 
 - [docs/index.md](/Users/Apple/dev/os/mann/Substrata/docs/index.md)
+- [docs/architecture/README.md](/Users/Apple/dev/os/mann/Substrata/docs/architecture/README.md)
 
 ## Open Source Standards
 
