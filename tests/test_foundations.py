@@ -10,6 +10,7 @@ def test_public_exports_are_available():
 
     assert settings.environment is Environment.LOCAL
     assert settings.network is Network.STELLAR_TESTNET
+    assert settings.default_asset_reference == "XLM"
     assert __version__ == "0.1.0"
 
 
