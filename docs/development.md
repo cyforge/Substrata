@@ -31,6 +31,10 @@ Run the minimal example app:
 python examples/basic_app.py
 ```
 
+The example imports `run_example_application` from the package so contributors
+can verify package-aware wiring without depending on root-level implementation
+details.
+
 Run tests:
 
 ```bash
@@ -50,6 +54,10 @@ The current development surface supports these environment variables:
 - `SUBSTRATA_ENVIRONMENT`
 - `SUBSTRATA_NETWORK`
 - `SUBSTRATA_LOG_LEVEL`
+- `SUBSTRATA_HORIZON_URL`
+- `SUBSTRATA_SIGNER_BACKEND`
+- `SUBSTRATA_DEFAULT_ASSET_CODE`
+- `SUBSTRATA_DEFAULT_ASSET_ISSUER`
 - `SUBSTRATA_DEBUG`
 
 ## Contributor Notes

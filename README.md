@@ -26,7 +26,8 @@ The repository will evolve toward a few core building blocks:
 ## Current Status
 
 This repository is in its initial setup phase.
-The current codebase is intentionally minimal and serves as a clean starting point for the SDK and reference implementation work.
+The current codebase is intentionally minimal and now includes a package skeleton,
+service-layer runtime wiring, and a typed settings model that later SDK work can build on.
 
 ## Development
 
@@ -57,6 +58,10 @@ Run the minimal example app:
 ```bash
 python examples/basic_app.py
 ```
+
+The example path calls into the installed `substrata` package rather than local
+script-only logic, so it exercises the same config and logging bootstrap used by
+the package entrypoints.
 
 Run tests:
 
