@@ -11,3 +11,6 @@ def configure_logging(level: str = "INFO", *, logger_name: str = "substrata") ->
     logger = logging.getLogger(logger_name)
     logger.setLevel(normalized_level)
     return logger
+
+
+__all__ = ["configure_logging"]
