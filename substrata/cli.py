@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from .app import run_example_application
+from .services.runtime import run_example_application
 
 
 def main() -> int:
