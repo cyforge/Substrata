@@ -12,13 +12,11 @@ from uuid import uuid4
 
 from ..constants import Network
 from ..errors import ValidationError
-from ..validation import AmountInput, validate_amount
+from ..validation import AmountInput, validate_amount, validate_required_string
 
 
 def _nonempty(value: str, field_name: str) -> str:
-    if not isinstance(value, str) or not value.strip():
-        raise ValidationError(f"{field_name} must be a non-empty string")
-    return value
+    return validate_required_string(value, field_name=field_name)
 
 
 @dataclass(frozen=True, slots=True)
