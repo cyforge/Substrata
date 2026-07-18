@@ -60,6 +60,10 @@ def test_result_and_signing_payload_have_typed_immutable_data():
     assert response.payload["transaction"] == "tx"
     with pytest.raises(TypeError):
         response.payload["transaction"] = "blocked"
+    with pytest.raises(ValidationError):
+        PaymentResult("req", PaymentStatus.FAILED, transaction_id=" ")
+    with pytest.raises(ValidationError):
+        SignResponse({"transaction": "tx"}, signature=" ")
 
 
 def test_transaction_metadata_validates_ledger_and_fee():
@@ -68,3 +72,7 @@ def test_transaction_metadata_validates_ledger_and_fee():
         TransactionMetadata("tx", Network.STELLAR_TESTNET, ledger=-1)
     with pytest.raises(ValidationError):
         TransactionMetadata("tx", Network.STELLAR_TESTNET, ledger="1")
+    with pytest.raises(ValidationError):
+        TransactionMetadata("tx", Network.STELLAR_TESTNET, created_at="yesterday")
+    with pytest.raises(ValidationError):
+        TransactionMetadata("tx", Network.STELLAR_TESTNET, raw=[])

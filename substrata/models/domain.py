@@ -96,6 +96,14 @@ class PaymentResult:
         _nonempty(self.request_id, "Request ID")
         if not isinstance(self.status, PaymentStatus):
             raise ValidationError("Status must be a PaymentStatus")
+        if self.transaction_id is not None:
+            _nonempty(self.transaction_id, "Transaction ID")
+        if self.asset is not None and not isinstance(self.asset, Asset):
+            raise ValidationError("Asset must be an Asset instance")
+        if self.network is not None and not isinstance(self.network, Network):
+            raise ValidationError("Network must be a Network instance")
+        if self.reason is not None:
+            _nonempty(self.reason, "Reason")
         if self.amount is not None:
             object.__setattr__(self, "amount", validate_amount(self.amount))
 
@@ -112,6 +120,8 @@ class PolicyDecision:
             raise ValidationError("Allowed must be a bool")
         _nonempty(self.reason_code, "Reason code")
         _nonempty(self.reason, "Reason")
+        if self.request_id is not None:
+            _nonempty(self.request_id, "Request ID")
 
 
 @dataclass(frozen=True, slots=True)
@@ -132,6 +142,8 @@ class SignResponse:
         if not isinstance(self.payload, Mapping):
             raise ValidationError("Signing payload must be a mapping")
         object.__setattr__(self, "payload", MappingProxyType(dict(self.payload)))
+        if self.signature is not None:
+            _nonempty(self.signature, "Signature")
 
 
 @dataclass(frozen=True, slots=True)
@@ -153,6 +165,12 @@ class TransactionMetadata:
             raise ValidationError("Ledger must be a non-negative integer")
         if self.fee is not None:
             object.__setattr__(self, "fee", validate_amount(self.fee, positive=False))
+        if self.created_at is not None and (
+            not isinstance(self.created_at, datetime) or self.created_at.tzinfo is None
+        ):
+            raise ValidationError("Transaction timestamp must be timezone-aware")
+        if not isinstance(self.raw, Mapping):
+            raise ValidationError("Raw transaction data must be a mapping")
         object.__setattr__(self, "raw", MappingProxyType(dict(self.raw)))
 
 
