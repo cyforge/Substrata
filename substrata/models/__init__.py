@@ -11,6 +11,7 @@ from .domain import (
     TransactionMetadata,
 )
 from .networks import network_from_caip, network_to_caip
+from .serialization import serialize_model
 
 __all__ = [
     "Asset",
@@ -23,4 +24,5 @@ __all__ = [
     "TransactionMetadata",
     "network_from_caip",
     "network_to_caip",
+    "serialize_model",
 ]
