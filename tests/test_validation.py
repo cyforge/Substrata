@@ -4,7 +4,12 @@ from enum import StrEnum
 import pytest
 
 from substrata.errors import ValidationError
-from substrata.validation import validate_amount, validate_enum, validate_required_string
+from substrata.validation import (
+    amount_to_atomic_units,
+    validate_amount,
+    validate_enum,
+    validate_required_string,
+)
 
 
 class ExampleMode(StrEnum):
@@ -38,7 +43,21 @@ def test_validate_amount_preserves_exact_decimal(value):
     assert validate_amount(value) == Decimal(str(value))
 
 
-@pytest.mark.parametrize("value", [True, False, 0.1, "nan", "Infinity", "-1", "0", "1.00000001"])
+@pytest.mark.parametrize(
+    "value",
+    [
+        True,
+        False,
+        0.1,
+        "nan",
+        "Infinity",
+        "-1",
+        "0",
+        "1.00000001",
+        "1e1000000000",
+        "0e1000000000",
+    ],
+)
 def test_validate_amount_rejects_invalid_payment_values(value):
     with pytest.raises(ValidationError):
         validate_amount(value)
@@ -48,3 +67,7 @@ def test_validate_amount_allows_nonnegative_zero_for_fee_fields():
     assert validate_amount(0, positive=False) == Decimal(0)
     with pytest.raises(ValidationError):
         validate_amount(Decimal("-0.1"), positive=False)
+
+
+def test_amount_to_atomic_units_uses_exact_integer_conversion():
+    assert amount_to_atomic_units(Decimal("1.2300001")) == 12_300_001

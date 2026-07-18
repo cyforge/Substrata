@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta, timezone
-from decimal import Decimal
+from decimal import Decimal, localcontext
 
 import pytest
 
@@ -109,3 +109,21 @@ def test_policy_expiry_and_spend_inputs_are_checked(payment_request):
     assert engine.evaluate(payment_request, spent_total=-1).reason_code == "invalid_spend"
     with pytest.raises(ValidationError):
         SpendPolicy(expires_at=datetime.now())
+
+
+def test_policy_limit_comparison_stays_exact_under_low_decimal_precision():
+    amount = Asset("XLM")
+    request = PaymentRequest("GRECIPIENT", Decimal("0.0000001"), amount)
+    large_limit = Decimal("9999999999999999999999999999999999999")
+    policy = SpendPolicy(
+        allowed_networks=frozenset({Network.STELLAR_TESTNET}),
+        allowed_recipients=frozenset({"GRECIPIENT"}),
+        allowed_assets=frozenset({amount}),
+        daily_limit=large_limit,
+    )
+
+    with localcontext() as context:
+        context.prec = 2
+        decision = PolicyEngine(policy).evaluate(request, spent_today=large_limit)
+
+    assert decision.reason_code == "daily_limit_exceeded"

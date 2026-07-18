@@ -9,7 +9,7 @@ from decimal import Decimal
 from .constants import Network
 from .errors import ValidationError
 from .models import Asset, PaymentRequest, PolicyDecision
-from .validation import AmountInput, validate_amount
+from .validation import AmountInput, amount_to_atomic_units, validate_amount
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,15 +86,24 @@ class PolicyEngine:
         request_origin = origin if origin is not None else request.origin
         if policy.allowed_origins and request_origin not in policy.allowed_origins:
             return self._deny("origin_denied", "Origin is not allowed", request)
-        if policy.max_payment is not None and request.amount > policy.max_payment:
+        request_units = amount_to_atomic_units(request.amount)
+        today_units = amount_to_atomic_units(today)
+        total_units = amount_to_atomic_units(total)
+        if policy.max_payment is not None and request_units > amount_to_atomic_units(
+            policy.max_payment
+        ):
             return self._deny(
                 "payment_limit_exceeded", "Payment exceeds per-payment limit", request
             )
-        if policy.daily_limit is not None and today + request.amount > policy.daily_limit:
+        if policy.daily_limit is not None and today_units + request_units > amount_to_atomic_units(
+            policy.daily_limit
+        ):
             return self._deny(
                 "daily_limit_exceeded", "Payment exceeds remaining daily limit", request
             )
-        if policy.total_limit is not None and total + request.amount > policy.total_limit:
+        if policy.total_limit is not None and total_units + request_units > amount_to_atomic_units(
+            policy.total_limit
+        ):
             return self._deny(
                 "total_limit_exceeded", "Payment exceeds remaining total limit", request
             )

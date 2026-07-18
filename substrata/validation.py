@@ -44,6 +44,9 @@ def validate_amount(value: AmountInput, *, positive: bool = True) -> Decimal:
         raise ValidationError("Amount is not a valid decimal") from exc
     if not amount.is_finite():
         raise ValidationError("Amount must be finite")
+    parts = amount.as_tuple()
+    if abs(parts.exponent) > 38 or len(parts.digits) > 38 or amount.adjusted() >= 38:
+        raise ValidationError("Amount exceeds supported decimal precision or magnitude")
     if positive and amount <= 0:
         raise ValidationError("Amount must be greater than zero")
     if not positive and amount < 0:
@@ -51,3 +54,12 @@ def validate_amount(value: AmountInput, *, positive: bool = True) -> Decimal:
     if max(0, -amount.as_tuple().exponent) > 7:
         raise ValidationError("Amount cannot have more than 7 fractional digits")
     return amount
+
+
+def amount_to_atomic_units(amount: Decimal) -> int:
+    """Convert validated seven-place decimal amount to exact integer stroops."""
+    normalized = validate_amount(amount, positive=False)
+    parts = normalized.as_tuple()
+    coefficient = int("".join(map(str, parts.digits)) or "0")
+    units = coefficient * 10 ** (parts.exponent + 7)
+    return -units if parts.sign else units

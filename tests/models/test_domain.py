@@ -42,12 +42,21 @@ def test_asset_and_payment_models_are_immutable_and_mapping_copied():
 def test_soroban_assets_keep_contract_identity_in_currency_key():
     sac = Asset.soroban("CCONTRACT", code="USD")
     same_code_different_contract = Asset.soroban("COTHER", code="USD")
+    same_contract_different_display_code = Asset.soroban("CCONTRACT", code="TOKEN")
 
     assert sac.code == "USD"
     assert sac.currency_key == "contract:CCONTRACT"
     assert sac != same_code_different_contract
+    assert sac == same_contract_different_display_code
+    assert hash(sac) == hash(same_contract_different_display_code)
     with pytest.raises(ValidationError):
         Asset("USD", issuer="GISSUER", contract_id="CCONTRACT")
+
+
+@pytest.mark.parametrize("code", ["usd", "A" * 13, "USD!", "EUR"])
+def test_classic_asset_requires_valid_code_and_issuer_for_non_native(code):
+    with pytest.raises(ValidationError):
+        Asset(code)
 
 
 def test_result_and_signing_payload_have_typed_immutable_data():

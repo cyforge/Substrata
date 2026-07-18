@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
@@ -19,7 +20,7 @@ def _nonempty(value: str, field_name: str) -> str:
     return validate_required_string(value, field_name=field_name)
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, eq=False)
 class Asset:
     code: str
     issuer: str | None = None
@@ -27,12 +28,18 @@ class Asset:
 
     def __post_init__(self) -> None:
         _nonempty(self.code, "Asset code")
+        if re.fullmatch(r"[A-Z0-9]{1,12}", self.code) is None:
+            raise ValidationError(
+                "Asset code must contain 1 to 12 uppercase ASCII letters or digits"
+            )
         if self.issuer is not None:
             _nonempty(self.issuer, "Asset issuer")
         if self.contract_id is not None:
             _nonempty(self.contract_id, "Asset contract ID")
         if self.issuer is not None and self.contract_id is not None:
             raise ValidationError("Asset cannot have both issuer and contract ID")
+        if self.issuer is None and self.contract_id is None and self.code != "XLM":
+            raise ValidationError("Unissued classic asset must use the native XLM code")
 
     @classmethod
     def soroban(cls, contract_id: str, *, code: str | None = None) -> Asset:
@@ -45,6 +52,18 @@ class Asset:
         if self.contract_id:
             return f"contract:{self.contract_id}"
         return f"{self.code}:{self.issuer}" if self.issuer else self.code
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, Asset):
+            return NotImplemented
+        if self.contract_id is not None or other.contract_id is not None:
+            return self.contract_id is not None and self.contract_id == other.contract_id
+        return (self.code, self.issuer) == (other.code, other.issuer)
+
+    def __hash__(self) -> int:
+        if self.contract_id is not None:
+            return hash(("contract", self.contract_id))
+        return hash((self.code, self.issuer))
 
 
 @dataclass(frozen=True, slots=True)
