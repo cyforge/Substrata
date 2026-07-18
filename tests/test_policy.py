@@ -127,3 +127,38 @@ def test_policy_limit_comparison_stays_exact_under_low_decimal_precision():
         decision = PolicyEngine(policy).evaluate(request, spent_today=large_limit)
 
     assert decision.reason_code == "daily_limit_exceeded"
+
+
+def test_spend_policy_json_round_trip_preserves_rules_and_exact_amounts():
+    policy = SpendPolicy(
+        allowed_networks=frozenset({Network.STELLAR_TESTNET}),
+        allowed_recipients=frozenset({"GRECIPIENT"}),
+        allowed_assets=frozenset({Asset.soroban("CCONTRACT", code="USD")}),
+        max_payment=Decimal("1.2300000"),
+        daily_limit=10,
+        total_limit=Decimal("20.50"),
+        expires_at=datetime(2027, 1, 2, 3, 4, 5, tzinfo=timezone.utc),
+        allowed_origins=frozenset({"https://shop.example"}),
+    )
+
+    restored = SpendPolicy.from_dict(policy.to_dict())
+
+    assert restored == policy
+    assert restored.max_payment == Decimal("1.2300000")
+    assert restored.allowed_assets == policy.allowed_assets
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        {"allowd_recipients": ["GRECIPIENT"]},
+        {"allowed_networks": ["stellar:unknown"]},
+        {"daily_limit": 10},
+        {"allowed_recipients": "GRECIPIENT"},
+        {"expires_at": "2027-01-02T03:04:05"},
+        {"allowed_assets": [{"code": "XLM", "extra": "typo"}]},
+    ],
+)
+def test_spend_policy_parser_rejects_unknown_or_malformed_fields(data):
+    with pytest.raises(ValidationError):
+        SpendPolicy.from_dict(data)

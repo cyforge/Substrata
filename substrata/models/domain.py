@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
+from math import isfinite
 from types import MappingProxyType
 from typing import Mapping
 from uuid import uuid4
@@ -18,6 +19,30 @@ from ..validation import AmountInput, validate_amount, validate_required_string
 
 def _nonempty(value: str, field_name: str) -> str:
     return validate_required_string(value, field_name=field_name)
+
+
+def _freeze_value(value: object) -> object:
+    if isinstance(value, Mapping):
+        if not all(isinstance(key, str) for key in value):
+            raise ValidationError("Metadata mapping keys must be strings")
+        return MappingProxyType({key: _freeze_value(item) for key, item in value.items()})
+    if isinstance(value, list | tuple):
+        return tuple(_freeze_value(item) for item in value)
+    if value is None or isinstance(value, (str, int, bool, Decimal, datetime)):
+        return value
+    if isinstance(value, float):
+        if not isfinite(value):
+            raise ValidationError("Metadata cannot contain non-finite floats")
+        return value
+    raise ValidationError(f"Metadata cannot contain {type(value).__name__} values")
+
+
+def _freeze_mapping(value: Mapping[str, object], field_name: str) -> Mapping[str, object]:
+    if not isinstance(value, Mapping):
+        raise ValidationError(f"{field_name} must be a mapping")
+    frozen = _freeze_value(value)
+    assert isinstance(frozen, Mapping)
+    return frozen
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -65,6 +90,26 @@ class Asset:
             return hash(("contract", self.contract_id))
         return hash((self.code, self.issuer))
 
+    @classmethod
+    def from_dict(cls, value: Mapping[str, object]) -> Asset:
+        if not isinstance(value, Mapping):
+            raise ValidationError("Asset data must be a mapping")
+        if not all(isinstance(key, str) for key in value):
+            raise ValidationError("Asset field names must be strings")
+        extra = set(value) - {"code", "issuer", "contract_id"}
+        if extra:
+            raise ValidationError(f"Unknown asset fields: {', '.join(sorted(extra))}")
+        code = value.get("code")
+        issuer = value.get("issuer")
+        contract_id = value.get("contract_id")
+        if not isinstance(code, str):
+            raise ValidationError("Asset code must be a string")
+        if issuer is not None and not isinstance(issuer, str):
+            raise ValidationError("Asset issuer must be a string or null")
+        if contract_id is not None and not isinstance(contract_id, str):
+            raise ValidationError("Asset contract ID must be a string or null")
+        return cls(code=code, issuer=issuer, contract_id=contract_id)
+
 
 @dataclass(frozen=True, slots=True)
 class PaymentRequest:
@@ -89,9 +134,7 @@ class PaymentRequest:
             _nonempty(self.resource, "Resource")
         if self.origin is not None:
             _nonempty(self.origin, "Origin")
-        if not isinstance(self.metadata, Mapping):
-            raise ValidationError("Metadata must be a mapping")
-        object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata)))
+        object.__setattr__(self, "metadata", _freeze_mapping(self.metadata, "Metadata"))
 
 
 class PaymentStatus(StrEnum):
@@ -158,9 +201,7 @@ class SignResponse:
     signature: str | None = None
 
     def __post_init__(self) -> None:
-        if not isinstance(self.payload, Mapping):
-            raise ValidationError("Signing payload must be a mapping")
-        object.__setattr__(self, "payload", MappingProxyType(dict(self.payload)))
+        object.__setattr__(self, "payload", _freeze_mapping(self.payload, "Signing payload"))
         if self.signature is not None:
             _nonempty(self.signature, "Signature")
 
@@ -188,9 +229,7 @@ class TransactionMetadata:
             not isinstance(self.created_at, datetime) or self.created_at.tzinfo is None
         ):
             raise ValidationError("Transaction timestamp must be timezone-aware")
-        if not isinstance(self.raw, Mapping):
-            raise ValidationError("Raw transaction data must be a mapping")
-        object.__setattr__(self, "raw", MappingProxyType(dict(self.raw)))
+        object.__setattr__(self, "raw", _freeze_mapping(self.raw, "Raw transaction data"))
 
 
 __all__ = [

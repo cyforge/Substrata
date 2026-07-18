@@ -47,7 +47,5 @@ def test_payment_result_serialization_keeps_network_status_and_transaction():
 
 
 def test_serialization_rejects_non_json_numbers():
-    request = PaymentRequest("GRECIPIENT", 1, Asset("XLM"), metadata={"bad": float("nan")})
-
     with pytest.raises(ValidationError):
-        serialize_model(request)
+        PaymentRequest("GRECIPIENT", 1, Asset("XLM"), metadata={"bad": float("nan")})

@@ -29,14 +29,18 @@ def test_payment_request_rejects_invalid_amount(amount):
 
 
 def test_asset_and_payment_models_are_immutable_and_mapping_copied():
-    metadata = {"memo": "hello"}
+    metadata = {"memo": "hello", "nested": {"tags": ["initial"]}}
     request = PaymentRequest("GRECIPIENT", 1, Asset("USD", "GISSUER"), metadata=metadata)
     metadata["memo"] = "changed"
+    metadata["nested"]["tags"].append("changed")
 
     assert request.asset.currency_key == "USD:GISSUER"
     assert request.metadata["memo"] == "hello"
+    assert request.metadata["nested"]["tags"] == ("initial",)
     with pytest.raises(TypeError):
         request.metadata["memo"] = "blocked"
+    with pytest.raises(TypeError):
+        request.metadata["nested"]["tags"] = ("blocked",)
 
 
 def test_soroban_assets_keep_contract_identity_in_currency_key():
@@ -51,6 +55,9 @@ def test_soroban_assets_keep_contract_identity_in_currency_key():
     assert hash(sac) == hash(same_contract_different_display_code)
     with pytest.raises(ValidationError):
         Asset("USD", issuer="GISSUER", contract_id="CCONTRACT")
+    assert Asset.from_dict({"code": "USD", "contract_id": "CCONTRACT"}) == sac
+    with pytest.raises(ValidationError):
+        Asset.from_dict({"code": "USD", "typo": "CCONTRACT"})
 
 
 @pytest.mark.parametrize("code", ["usd", "A" * 13, "USD!", "EUR"])

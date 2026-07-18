@@ -5,10 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal
+from typing import Mapping
 
 from .constants import Network
 from .errors import ValidationError
-from .models import Asset, PaymentRequest, PolicyDecision
+from .models import Asset, PaymentRequest, PolicyDecision, serialize_model
 from .validation import AmountInput, amount_to_atomic_units, validate_amount
 
 
@@ -42,6 +43,78 @@ class SpendPolicy:
                 object.__setattr__(self, name, amount)
         if self.expires_at is not None and self.expires_at.tzinfo is None:
             raise ValidationError("Policy expiry must be timezone-aware")
+
+    def to_dict(self) -> dict[str, object]:
+        """Return stable JSON-ready policy data with decimal strings."""
+        return {
+            "allowed_networks": sorted(network.value for network in self.allowed_networks),
+            "allowed_recipients": sorted(self.allowed_recipients),
+            "allowed_assets": [
+                serialize_model(asset)
+                for asset in sorted(self.allowed_assets, key=lambda item: item.currency_key)
+            ],
+            "max_payment": str(self.max_payment) if self.max_payment is not None else None,
+            "daily_limit": str(self.daily_limit) if self.daily_limit is not None else None,
+            "total_limit": str(self.total_limit) if self.total_limit is not None else None,
+            "expires_at": self.expires_at.isoformat() if self.expires_at is not None else None,
+            "allowed_origins": sorted(self.allowed_origins),
+        }
+
+    @classmethod
+    def from_dict(cls, value: Mapping[str, object]) -> SpendPolicy:
+        """Parse strict policy data; unknown fields fail closed."""
+        if not isinstance(value, Mapping):
+            raise ValidationError("Policy data must be a mapping")
+        if not all(isinstance(key, str) for key in value):
+            raise ValidationError("Policy field names must be strings")
+        allowed_fields = {
+            "allowed_networks",
+            "allowed_recipients",
+            "allowed_assets",
+            "max_payment",
+            "daily_limit",
+            "total_limit",
+            "expires_at",
+            "allowed_origins",
+        }
+        extra = set(value) - allowed_fields
+        if extra:
+            raise ValidationError(f"Unknown policy fields: {', '.join(sorted(extra))}")
+
+        networks = _string_list(value.get("allowed_networks", []), "allowed_networks")
+        recipients = _string_list(value.get("allowed_recipients", []), "allowed_recipients")
+        origins = _string_list(value.get("allowed_origins", []), "allowed_origins")
+        raw_assets = value.get("allowed_assets", [])
+        if not isinstance(raw_assets, list):
+            raise ValidationError("allowed_assets must be a list")
+        assets = []
+        for raw_asset in raw_assets:
+            if not isinstance(raw_asset, Mapping):
+                raise ValidationError("Each allowed asset must be a mapping")
+            assets.append(Asset.from_dict(raw_asset))
+
+        expiry_value = value.get("expires_at")
+        expires_at = None
+        if expiry_value is not None:
+            if not isinstance(expiry_value, str) or "T" not in expiry_value:
+                raise ValidationError("expires_at must be an RFC3339 timestamp")
+            try:
+                expires_at = datetime.fromisoformat(expiry_value.replace("Z", "+00:00"))
+            except ValueError as exc:
+                raise ValidationError("expires_at must be an RFC3339 timestamp") from exc
+            if expires_at.tzinfo is None:
+                raise ValidationError("expires_at must include a timezone")
+
+        return cls(
+            allowed_networks=frozenset(_parse_network(item) for item in networks),
+            allowed_recipients=frozenset(recipients),
+            allowed_assets=frozenset(assets),
+            max_payment=_policy_amount(value.get("max_payment"), "max_payment"),
+            daily_limit=_policy_amount(value.get("daily_limit"), "daily_limit"),
+            total_limit=_policy_amount(value.get("total_limit"), "total_limit"),
+            expires_at=expires_at,
+            allowed_origins=frozenset(origins),
+        )
 
 
 class PolicyEngine:
@@ -115,3 +188,24 @@ class PolicyEngine:
 
 
 __all__ = ["PolicyEngine", "SpendPolicy"]
+
+
+def _string_list(value: object, field_name: str) -> list[str]:
+    if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
+        raise ValidationError(f"{field_name} must be a list of strings")
+    return value
+
+
+def _parse_network(value: str) -> Network:
+    try:
+        return Network(value)
+    except ValueError as exc:
+        raise ValidationError(f"Unsupported policy network: {value}") from exc
+
+
+def _policy_amount(value: object, field_name: str) -> Decimal | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValidationError(f"{field_name} must be a decimal string or null")
+    return validate_amount(value)
