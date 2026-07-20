@@ -12,6 +12,10 @@ from substrata.models import (
     PaymentResult,
     PaymentStatus,
     PolicyDecision,
+    SignRequest,
+    SignResponse,
+    TransactionMetadata,
+    deserialize_model,
     serialize_model,
 )
 
@@ -81,3 +85,33 @@ def test_policy_decision_serializes_budget_metadata_as_exact_strings():
         "remaining_today": "1",
         "remaining_total": None,
     }
+
+
+@pytest.mark.parametrize(
+    "model",
+    [
+        Asset("USD", "GISSUER"),
+        PaymentRequest("GRECIPIENT", Decimal("1.25"), Asset("XLM")),
+        PaymentResult("req", PaymentStatus.SETTLED, amount=Decimal("1"), asset=Asset("XLM")),
+        PolicyDecision(
+            True,
+            "allowed",
+            "Payment is allowed",
+            "req",
+            BudgetMetadata(spent_today=Decimal("2"), spent_total=Decimal("5")),
+        ),
+        SignRequest(PaymentRequest("GRECIPIENT", Decimal("1"), Asset("XLM"))),
+        SignResponse({"memo": "hello", "nested": ["one"]}, signature="abc"),
+        TransactionMetadata("tx", Network.STELLAR_TESTNET, ledger=123, fee=Decimal("0.1")),
+    ],
+)
+def test_core_model_serialization_round_trips(model):
+    assert deserialize_model(type(model), serialize_model(model)) == model
+
+
+def test_deserializer_rejects_unknown_fields_and_wrong_decimal_wire_types():
+    request_data = serialize_model(PaymentRequest("GRECIPIENT", 1, Asset("XLM")))
+    with pytest.raises(ValidationError, match="Unknown model fields"):
+        deserialize_model(PaymentRequest, {**request_data, "amunt": "1"})
+    with pytest.raises(ValidationError, match="decimal string"):
+        deserialize_model(PaymentRequest, {**request_data, "amount": 1})
