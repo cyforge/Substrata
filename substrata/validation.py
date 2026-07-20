@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import re
 from decimal import Decimal, InvalidOperation
 from enum import Enum
+from ipaddress import ip_address
 from typing import TypeAlias, TypeVar
+from urllib.parse import urlsplit
 
 from .errors import ValidationError
 
@@ -17,6 +20,45 @@ def validate_required_string(value: str, *, field_name: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValidationError(f"{field_name} must be a non-empty string")
     return value
+
+
+def normalize_origin(value: str) -> str:
+    """Validate and canonicalize an HTTP(S) origin for allowlist comparisons."""
+    validate_required_string(value, field_name="Origin")
+    if any(character.isspace() or ord(character) < 32 for character in value):
+        raise ValidationError("Origin cannot contain whitespace or control characters")
+    try:
+        parsed = urlsplit(value)
+        scheme = parsed.scheme.lower()
+        hostname = parsed.hostname
+        port = parsed.port
+    except ValueError as exc:
+        raise ValidationError("Origin is malformed") from exc
+    if scheme not in {"http", "https"} or hostname is None:
+        raise ValidationError("Origin must use http or https and include a host")
+    if parsed.username is not None or parsed.password is not None:
+        raise ValidationError("Origin cannot include credentials")
+    if parsed.path not in {"", "/"} or parsed.query or parsed.fragment:
+        raise ValidationError("Origin cannot include a path, query, or fragment")
+    if "%" in hostname:
+        raise ValidationError("Origin host cannot include an IPv6 zone identifier")
+    try:
+        host = ip_address(hostname).compressed
+    except ValueError:
+        try:
+            host = hostname.encode("idna").decode("ascii").lower().rstrip(".")
+        except UnicodeError as exc:
+            raise ValidationError("Origin host is invalid") from exc
+        if not host or any(
+            re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", label) is None
+            for label in host.split(".")
+        ):
+            raise ValidationError("Origin host is invalid") from None
+    if ":" in host:
+        host = f"[{host}]"
+    default_port = (scheme == "http" and port == 80) or (scheme == "https" and port == 443)
+    port_suffix = f":{port}" if port is not None and not default_port else ""
+    return f"{scheme}://{host}{port_suffix}"
 
 
 def validate_enum(

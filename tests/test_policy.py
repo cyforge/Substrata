@@ -34,6 +34,19 @@ def test_policy_allows_request_with_explicit_rules_and_headroom(payment_request)
     assert result.budget.remaining_total == Decimal("15.0000000")
 
 
+def test_policy_normalizes_request_and_configured_origins():
+    request = PaymentRequest("GRECIPIENT", 1, Asset("XLM"), origin="HTTPS://SHOP.EXAMPLE:443/")
+    policy = SpendPolicy(
+        allowed_networks=frozenset({Network.STELLAR_TESTNET}),
+        allowed_recipients=frozenset({"GRECIPIENT"}),
+        allowed_assets=frozenset({Asset("XLM")}),
+        allowed_origins=frozenset({"https://shop.example"}),
+    )
+
+    assert request.origin == "https://shop.example"
+    assert PolicyEngine(policy).evaluate(request).allowed
+
+
 @pytest.mark.parametrize(
     ("policy", "kwargs", "code"),
     [

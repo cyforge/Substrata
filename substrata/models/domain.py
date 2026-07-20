@@ -14,7 +14,7 @@ from uuid import uuid4
 
 from ..constants import Network
 from ..errors import ValidationError
-from ..validation import AmountInput, validate_amount, validate_required_string
+from ..validation import AmountInput, normalize_origin, validate_amount, validate_required_string
 
 
 def _nonempty(value: str, field_name: str) -> str:
@@ -182,7 +182,7 @@ class PaymentRequest:
         if self.resource is not None:
             _nonempty(self.resource, "Resource")
         if self.origin is not None:
-            _nonempty(self.origin, "Origin")
+            object.__setattr__(self, "origin", normalize_origin(self.origin))
         object.__setattr__(self, "metadata", _freeze_mapping(self.metadata, "Metadata"))
 
 

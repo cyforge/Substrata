@@ -6,6 +6,7 @@ import pytest
 from substrata.errors import ValidationError
 from substrata.validation import (
     amount_to_atomic_units,
+    normalize_origin,
     validate_amount,
     validate_enum,
     validate_required_string,
@@ -36,6 +37,35 @@ def test_validate_enum_accepts_member_and_wire_value():
 def test_validate_enum_rejects_unrecognized_value_with_choices():
     with pytest.raises(ValidationError, match="safe.*live"):
         validate_enum("unknown", ExampleMode, field_name="Mode")
+
+
+@pytest.mark.parametrize(
+    ("origin", "canonical"),
+    [
+        ("HTTPS://Example.COM:443/", "https://example.com"),
+        ("http://[2001:db8::1]:80", "http://[2001:db8::1]"),
+        ("http://localhost:8080", "http://localhost:8080"),
+        ("https://bücher.example", "https://xn--bcher-kva.example"),
+    ],
+)
+def test_origin_normalization_canonicalizes_web_authority(origin, canonical):
+    assert normalize_origin(origin) == canonical
+
+
+@pytest.mark.parametrize(
+    "origin",
+    [
+        "file:///tmp/data",
+        "https://user@example.com",
+        "https://example.com/path",
+        "https://example.com?query=1",
+        "https://example.com:70000",
+        "https://bad_host.example",
+    ],
+)
+def test_origin_normalization_rejects_non_origins(origin):
+    with pytest.raises(ValidationError):
+        normalize_origin(origin)
 
 
 @pytest.mark.parametrize("value", ["1.0000000", 1, Decimal("0.1")])

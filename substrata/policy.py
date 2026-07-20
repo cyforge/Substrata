@@ -11,7 +11,7 @@ from typing import Mapping
 from .constants import Network
 from .errors import ValidationError
 from .models import Asset, BudgetMetadata, PaymentRequest, PolicyDecision, serialize_model
-from .validation import AmountInput, amount_to_atomic_units, validate_amount
+from .validation import AmountInput, amount_to_atomic_units, normalize_origin, validate_amount
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,6 +28,11 @@ class SpendPolicy:
     def __post_init__(self) -> None:
         for name in ("allowed_networks", "allowed_recipients", "allowed_assets", "allowed_origins"):
             object.__setattr__(self, name, frozenset(getattr(self, name)))
+        object.__setattr__(
+            self,
+            "allowed_origins",
+            frozenset(normalize_origin(origin) for origin in self.allowed_origins),
+        )
         for value in self.allowed_networks:
             if not isinstance(value, Network):
                 raise ValidationError("Allowed networks must contain Network values")
@@ -193,6 +198,8 @@ class PolicyEngine:
         if request.asset not in policy.allowed_assets:
             return self._deny("asset_denied", "Asset is not allowed", request, budget)
         request_origin = origin if origin is not None else request.origin
+        if origin is not None:
+            request_origin = normalize_origin(origin)
         if policy.allowed_origins and request_origin not in policy.allowed_origins:
             return self._deny("origin_denied", "Origin is not allowed", request, budget)
         request_units = amount_to_atomic_units(request.amount)
