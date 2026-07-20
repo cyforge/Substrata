@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -98,7 +99,14 @@ class SpendPolicy:
         expiry_value = value.get("expires_at")
         expires_at = None
         if expiry_value is not None:
-            if not isinstance(expiry_value, str) or "T" not in expiry_value:
+            if (
+                not isinstance(expiry_value, str)
+                or re.fullmatch(
+                    r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})",
+                    expiry_value,
+                )
+                is None
+            ):
                 raise ValidationError("expires_at must be an RFC3339 timestamp")
             try:
                 expires_at = datetime.fromisoformat(expiry_value.replace("Z", "+00:00"))

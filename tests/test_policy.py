@@ -174,6 +174,8 @@ def test_spend_policy_json_round_trip_preserves_rules_and_exact_amounts():
         {"daily_limit": 10},
         {"allowed_recipients": "GRECIPIENT"},
         {"expires_at": "2027-01-02T03:04:05"},
+        {"expires_at": "2027-01-02T03:04Z"},
+        {"expires_at": "2027-01-02T03:04:05+00"},
         {"allowed_assets": [{"code": "XLM", "extra": "typo"}]},
     ],
 )
