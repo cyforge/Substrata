@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from decimal import Decimal
+from hashlib import sha256
 from math import isfinite
 from typing import Mapping, TypeAlias, cast
 
@@ -186,6 +188,23 @@ def deserialize_model(model_type: type[DomainModel], value: Mapping[str, object]
     raise ValidationError(f"Unsupported model type: {model_type.__name__}")
 
 
+def payment_request_fingerprint(request: PaymentRequest) -> str:
+    """Hash canonical JSON representation of a complete payment request."""
+    if not isinstance(request, PaymentRequest):
+        raise ValidationError("Fingerprinting requires a PaymentRequest")
+    try:
+        canonical = json.dumps(
+            serialize_model(request),
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
+        ).encode("utf-8")
+    except (TypeError, ValueError, UnicodeEncodeError) as exc:
+        raise ValidationError("Payment request cannot be fingerprinted") from exc
+    return sha256(canonical).hexdigest()
+
+
 def _json_value(value: object) -> JsonValue:
     if value is None or isinstance(value, (bool, int, str)):
         return value
@@ -208,7 +227,13 @@ def _json_value(value: object) -> JsonValue:
     raise ValidationError(f"Cannot serialize value of type {type(value).__name__}")
 
 
-__all__ = ["DomainModel", "JsonValue", "serialize_model"]
+__all__ = [
+    "DomainModel",
+    "JsonValue",
+    "deserialize_model",
+    "payment_request_fingerprint",
+    "serialize_model",
+]
 
 
 def _serialize_budget(budget: BudgetMetadata | None) -> dict[str, JsonValue] | None:

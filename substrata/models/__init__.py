@@ -12,7 +12,7 @@ from .domain import (
     TransactionMetadata,
 )
 from .networks import network_from_caip, network_to_caip
-from .serialization import deserialize_model, serialize_model
+from .serialization import deserialize_model, payment_request_fingerprint, serialize_model
 
 __all__ = [
     "Asset",
@@ -27,5 +27,6 @@ __all__ = [
     "network_from_caip",
     "network_to_caip",
     "deserialize_model",
+    "payment_request_fingerprint",
     "serialize_model",
 ]

@@ -16,6 +16,7 @@ from substrata.models import (
     SignResponse,
     TransactionMetadata,
     deserialize_model,
+    payment_request_fingerprint,
     serialize_model,
 )
 
@@ -115,3 +116,25 @@ def test_deserializer_rejects_unknown_fields_and_wrong_decimal_wire_types():
         deserialize_model(PaymentRequest, {**request_data, "amunt": "1"})
     with pytest.raises(ValidationError, match="decimal string"):
         deserialize_model(PaymentRequest, {**request_data, "amount": 1})
+
+
+def test_payment_request_fingerprint_is_canonical_and_binds_all_request_fields():
+    asset = Asset("USD", "GISSUER")
+    left = PaymentRequest(
+        "GRECIPIENT",
+        "1.0",
+        asset,
+        request_id="same-id",
+        metadata={"memo": "hi", "source": {"a": 1, "b": 2}},
+    )
+    right = PaymentRequest(
+        "GRECIPIENT",
+        Decimal("1.0"),
+        asset,
+        request_id="same-id",
+        metadata={"source": {"b": 2, "a": 1}, "memo": "hi"},
+    )
+    changed = PaymentRequest("GRECIPIENT", 1, asset, request_id="same-id", metadata={"memo": "bye"})
+
+    assert payment_request_fingerprint(left) == payment_request_fingerprint(right)
+    assert payment_request_fingerprint(left) != payment_request_fingerprint(changed)
