@@ -5,7 +5,15 @@ import pytest
 
 from substrata.constants import Network
 from substrata.errors import ValidationError
-from substrata.models import Asset, PaymentRequest, PaymentResult, PaymentStatus, serialize_model
+from substrata.models import (
+    Asset,
+    BudgetMetadata,
+    PaymentRequest,
+    PaymentResult,
+    PaymentStatus,
+    PolicyDecision,
+    serialize_model,
+)
 
 
 def test_payment_request_serialization_is_json_safe_and_does_not_mutate():
@@ -49,3 +57,27 @@ def test_payment_result_serialization_keeps_network_status_and_transaction():
 def test_serialization_rejects_non_json_numbers():
     with pytest.raises(ValidationError):
         PaymentRequest("GRECIPIENT", 1, Asset("XLM"), metadata={"bad": float("nan")})
+
+
+def test_policy_decision_serializes_budget_metadata_as_exact_strings():
+    decision = PolicyDecision(
+        False,
+        "daily_limit_exceeded",
+        "Daily cap reached",
+        "req-1",
+        BudgetMetadata(
+            spent_today=Decimal("2"),
+            spent_total=Decimal("5"),
+            daily_limit=Decimal("3"),
+            remaining_today=Decimal("1"),
+        ),
+    )
+
+    assert serialize_model(decision)["budget"] == {
+        "spent_today": "2",
+        "spent_total": "5",
+        "daily_limit": "3",
+        "total_limit": None,
+        "remaining_today": "1",
+        "remaining_total": None,
+    }

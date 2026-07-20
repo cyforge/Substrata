@@ -9,7 +9,7 @@ from typing import Mapping
 
 from .constants import Network
 from .errors import ValidationError
-from .models import Asset, PaymentRequest, PolicyDecision, serialize_model
+from .models import Asset, BudgetMetadata, PaymentRequest, PolicyDecision, serialize_model
 from .validation import AmountInput, amount_to_atomic_units, validate_amount
 
 
@@ -41,7 +41,9 @@ class SpendPolicy:
             if value is not None:
                 amount = validate_amount(value)
                 object.__setattr__(self, name, amount)
-        if self.expires_at is not None and self.expires_at.tzinfo is None:
+        if self.expires_at is not None and (
+            not isinstance(self.expires_at, datetime) or self.expires_at.tzinfo is None
+        ):
             raise ValidationError("Policy expiry must be timezone-aware")
 
     def to_dict(self) -> dict[str, object]:
@@ -145,46 +147,75 @@ class PolicyEngine:
             return self._deny("invalid_spend", "Recorded spend cannot be negative", request)
 
         policy = self.policy
+        today_units = amount_to_atomic_units(today)
+        total_units = amount_to_atomic_units(total)
+        daily_limit_units = (
+            amount_to_atomic_units(policy.daily_limit) if policy.daily_limit is not None else None
+        )
+        total_limit_units = (
+            amount_to_atomic_units(policy.total_limit) if policy.total_limit is not None else None
+        )
+        budget = BudgetMetadata(
+            spent_today=today,
+            spent_total=total,
+            daily_limit=policy.daily_limit,
+            total_limit=policy.total_limit,
+            remaining_today=(
+                _amount_from_units(max(0, daily_limit_units - today_units))
+                if daily_limit_units is not None
+                else None
+            ),
+            remaining_total=(
+                _amount_from_units(max(0, total_limit_units - total_units))
+                if total_limit_units is not None
+                else None
+            ),
+        )
+        if now is not None and not isinstance(now, datetime):
+            raise ValidationError("Evaluation time must be a datetime")
         current = now or datetime.now(timezone.utc)
         if current.tzinfo is None:
             raise ValidationError("Evaluation time must be timezone-aware")
         if policy.expires_at is not None and current >= policy.expires_at:
-            return self._deny("policy_expired", "Spend policy has expired", request)
+            return self._deny("policy_expired", "Spend policy has expired", request, budget)
         if request.network not in policy.allowed_networks:
-            return self._deny("network_denied", "Network is not allowed", request)
+            return self._deny("network_denied", "Network is not allowed", request, budget)
         if request.recipient not in policy.allowed_recipients:
-            return self._deny("recipient_denied", "Recipient is not allowed", request)
+            return self._deny("recipient_denied", "Recipient is not allowed", request, budget)
         if request.asset not in policy.allowed_assets:
-            return self._deny("asset_denied", "Asset is not allowed", request)
+            return self._deny("asset_denied", "Asset is not allowed", request, budget)
         request_origin = origin if origin is not None else request.origin
         if policy.allowed_origins and request_origin not in policy.allowed_origins:
-            return self._deny("origin_denied", "Origin is not allowed", request)
+            return self._deny("origin_denied", "Origin is not allowed", request, budget)
         request_units = amount_to_atomic_units(request.amount)
-        today_units = amount_to_atomic_units(today)
-        total_units = amount_to_atomic_units(total)
         if policy.max_payment is not None and request_units > amount_to_atomic_units(
             policy.max_payment
         ):
             return self._deny(
-                "payment_limit_exceeded", "Payment exceeds per-payment limit", request
+                "payment_limit_exceeded", "Payment exceeds per-payment limit", request, budget
             )
         if policy.daily_limit is not None and today_units + request_units > amount_to_atomic_units(
             policy.daily_limit
         ):
             return self._deny(
-                "daily_limit_exceeded", "Payment exceeds remaining daily limit", request
+                "daily_limit_exceeded", "Payment exceeds remaining daily limit", request, budget
             )
         if policy.total_limit is not None and total_units + request_units > amount_to_atomic_units(
             policy.total_limit
         ):
             return self._deny(
-                "total_limit_exceeded", "Payment exceeds remaining total limit", request
+                "total_limit_exceeded", "Payment exceeds remaining total limit", request, budget
             )
-        return PolicyDecision(True, "allowed", "Payment is allowed", request.request_id)
+        return PolicyDecision(True, "allowed", "Payment is allowed", request.request_id, budget)
 
     @staticmethod
-    def _deny(code: str, reason: str, request: PaymentRequest) -> PolicyDecision:
-        return PolicyDecision(False, code, reason, request.request_id)
+    def _deny(
+        code: str,
+        reason: str,
+        request: PaymentRequest,
+        budget: BudgetMetadata | None = None,
+    ) -> PolicyDecision:
+        return PolicyDecision(False, code, reason, request.request_id, budget)
 
 
 __all__ = ["PolicyEngine", "SpendPolicy"]
@@ -209,3 +240,8 @@ def _policy_amount(value: object, field_name: str) -> Decimal | None:
     if not isinstance(value, str):
         raise ValidationError(f"{field_name} must be a decimal string or null")
     return validate_amount(value)
+
+
+def _amount_from_units(units: int) -> Decimal:
+    whole, fraction = divmod(units, 10_000_000)
+    return Decimal(f"{whole}.{fraction:07d}")

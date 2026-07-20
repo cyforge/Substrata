@@ -2,6 +2,7 @@
 
 from .domain import (
     Asset,
+    BudgetMetadata,
     PaymentRequest,
     PaymentResult,
     PaymentStatus,
@@ -15,6 +16,7 @@ from .serialization import serialize_model
 
 __all__ = [
     "Asset",
+    "BudgetMetadata",
     "PaymentRequest",
     "PaymentResult",
     "PaymentStatus",

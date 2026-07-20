@@ -10,6 +10,7 @@ from typing import Mapping, TypeAlias
 from ..errors import ValidationError
 from .domain import (
     Asset,
+    BudgetMetadata,
     PaymentRequest,
     PaymentResult,
     PolicyDecision,
@@ -61,6 +62,7 @@ def serialize_model(model: DomainModel) -> dict[str, JsonValue]:
             "reason_code": model.reason_code,
             "reason": model.reason,
             "request_id": model.request_id,
+            "budget": _serialize_budget(model.budget),
         }
     if isinstance(model, SignRequest):
         return {"request": serialize_model(model.request)}
@@ -101,3 +103,20 @@ def _json_value(value: object) -> JsonValue:
 
 
 __all__ = ["DomainModel", "JsonValue", "serialize_model"]
+
+
+def _serialize_budget(budget: BudgetMetadata | None) -> dict[str, JsonValue] | None:
+    if budget is None:
+        return None
+    return {
+        "spent_today": str(budget.spent_today),
+        "spent_total": str(budget.spent_total),
+        "daily_limit": str(budget.daily_limit) if budget.daily_limit is not None else None,
+        "total_limit": str(budget.total_limit) if budget.total_limit is not None else None,
+        "remaining_today": (
+            str(budget.remaining_today) if budget.remaining_today is not None else None
+        ),
+        "remaining_total": (
+            str(budget.remaining_total) if budget.remaining_total is not None else None
+        ),
+    }

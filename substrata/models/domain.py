@@ -21,14 +21,61 @@ def _nonempty(value: str, field_name: str) -> str:
     return validate_required_string(value, field_name=field_name)
 
 
-def _freeze_value(value: object) -> object:
+def _freeze_value(
+    value: object,
+    *,
+    depth: int = 0,
+    ancestors: frozenset[int] = frozenset(),
+    nodes: list[int] | None = None,
+) -> object:
+    if nodes is None:
+        nodes = [10_000]
+    nodes[0] -= 1
+    if nodes[0] < 0 or depth > 32:
+        raise ValidationError("Metadata exceeds supported size or nesting depth")
     if isinstance(value, Mapping):
+        if id(value) in ancestors:
+            raise ValidationError("Metadata cannot contain circular references")
+        if len(value) > 10_000:
+            raise ValidationError("Metadata mapping exceeds supported size")
         if not all(isinstance(key, str) for key in value):
             raise ValidationError("Metadata mapping keys must be strings")
-        return MappingProxyType({key: _freeze_value(item) for key, item in value.items()})
+        nested_ancestors = ancestors | {id(value)}
+        return MappingProxyType(
+            {
+                key: _freeze_value(
+                    item,
+                    depth=depth + 1,
+                    ancestors=nested_ancestors,
+                    nodes=nodes,
+                )
+                for key, item in value.items()
+            }
+        )
     if isinstance(value, list | tuple):
-        return tuple(_freeze_value(item) for item in value)
-    if value is None or isinstance(value, (str, int, bool, Decimal, datetime)):
+        if id(value) in ancestors:
+            raise ValidationError("Metadata cannot contain circular references")
+        if len(value) > 10_000:
+            raise ValidationError("Metadata sequence exceeds supported size")
+        nested_ancestors = ancestors | {id(value)}
+        return tuple(
+            _freeze_value(
+                item,
+                depth=depth + 1,
+                ancestors=nested_ancestors,
+                nodes=nodes,
+            )
+            for item in value
+        )
+    if value is None or isinstance(value, (str, bool, datetime)):
+        return value
+    if isinstance(value, int):
+        if value.bit_length() > 4096:
+            raise ValidationError("Metadata integer exceeds supported size")
+        return value
+    if isinstance(value, Decimal):
+        if not value.is_finite():
+            raise ValidationError("Metadata cannot contain non-finite decimals")
         return value
     if isinstance(value, float):
         if not isfinite(value):
@@ -63,6 +110,8 @@ class Asset:
             _nonempty(self.contract_id, "Asset contract ID")
         if self.issuer is not None and self.contract_id is not None:
             raise ValidationError("Asset cannot have both issuer and contract ID")
+        if self.code == "XLM" and self.issuer is not None:
+            raise ValidationError("Native XLM cannot have an issuer")
         if self.issuer is None and self.contract_id is None and self.code != "XLM":
             raise ValidationError("Unissued classic asset must use the native XLM code")
 
@@ -70,7 +119,7 @@ class Asset:
     def soroban(cls, contract_id: str, *, code: str | None = None) -> Asset:
         """Create asset value for a Soroban token contract, including SACs."""
         _nonempty(contract_id, "Asset contract ID")
-        return cls(code=code or contract_id, contract_id=contract_id)
+        return cls(code=code or "TOKEN", contract_id=contract_id)
 
     @property
     def currency_key(self) -> str:
@@ -145,6 +194,24 @@ class PaymentStatus(StrEnum):
 
 
 @dataclass(frozen=True, slots=True)
+class BudgetMetadata:
+    spent_today: Decimal
+    spent_total: Decimal
+    daily_limit: Decimal | None = None
+    total_limit: Decimal | None = None
+    remaining_today: Decimal | None = None
+    remaining_total: Decimal | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "spent_today", validate_amount(self.spent_today, positive=False))
+        object.__setattr__(self, "spent_total", validate_amount(self.spent_total, positive=False))
+        for name in ("daily_limit", "total_limit", "remaining_today", "remaining_total"):
+            value = getattr(self, name)
+            if value is not None:
+                object.__setattr__(self, name, validate_amount(value, positive=False))
+
+
+@dataclass(frozen=True, slots=True)
 class PaymentResult:
     request_id: str
     status: PaymentStatus
@@ -176,6 +243,7 @@ class PolicyDecision:
     reason_code: str
     reason: str
     request_id: str | None = None
+    budget: BudgetMetadata | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.allowed, bool):
@@ -184,6 +252,8 @@ class PolicyDecision:
         _nonempty(self.reason, "Reason")
         if self.request_id is not None:
             _nonempty(self.request_id, "Request ID")
+        if self.budget is not None and not isinstance(self.budget, BudgetMetadata):
+            raise ValidationError("Budget must be BudgetMetadata or None")
 
 
 @dataclass(frozen=True, slots=True)
@@ -234,6 +304,7 @@ class TransactionMetadata:
 
 __all__ = [
     "Asset",
+    "BudgetMetadata",
     "PaymentRequest",
     "PaymentResult",
     "PaymentStatus",

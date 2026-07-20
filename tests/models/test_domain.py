@@ -43,6 +43,22 @@ def test_asset_and_payment_models_are_immutable_and_mapping_copied():
         request.metadata["nested"]["tags"] = ("blocked",)
 
 
+def test_model_metadata_rejects_cycles_excessive_depth_and_nonfinite_decimals():
+    cyclic = {}
+    cyclic["self"] = cyclic
+    with pytest.raises(ValidationError):
+        PaymentRequest("GRECIPIENT", 1, Asset("XLM"), metadata=cyclic)
+
+    deep = 0
+    for _ in range(40):
+        deep = [deep]
+    with pytest.raises(ValidationError):
+        PaymentRequest("GRECIPIENT", 1, Asset("XLM"), metadata={"deep": deep})
+
+    with pytest.raises(ValidationError):
+        PaymentRequest("GRECIPIENT", 1, Asset("XLM"), metadata={"amount": Decimal("Infinity")})
+
+
 def test_soroban_assets_keep_contract_identity_in_currency_key():
     sac = Asset.soroban("CCONTRACT", code="USD")
     same_code_different_contract = Asset.soroban("COTHER", code="USD")
@@ -58,6 +74,16 @@ def test_soroban_assets_keep_contract_identity_in_currency_key():
     assert Asset.from_dict({"code": "USD", "contract_id": "CCONTRACT"}) == sac
     with pytest.raises(ValidationError):
         Asset.from_dict({"code": "USD", "typo": "CCONTRACT"})
+
+
+def test_soroban_factory_defaults_display_code_for_long_contract_ids():
+    contract_id = "C" + "A" * 55
+
+    asset = Asset.soroban(contract_id)
+
+    assert asset.code == "TOKEN"
+    assert asset.contract_id == contract_id
+    assert asset.currency_key == f"contract:{contract_id}"
 
 
 @pytest.mark.parametrize("code", ["usd", "A" * 13, "USD!", "EUR"])
@@ -92,3 +118,5 @@ def test_transaction_metadata_validates_ledger_and_fee():
         TransactionMetadata("tx", Network.STELLAR_TESTNET, created_at="yesterday")
     with pytest.raises(ValidationError):
         TransactionMetadata("tx", Network.STELLAR_TESTNET, raw=[])
+    with pytest.raises(ValidationError):
+        Asset("XLM", issuer="GISSUER")

@@ -29,6 +29,9 @@ def test_policy_allows_request_with_explicit_rules_and_headroom(payment_request)
 
     assert result.allowed
     assert result.reason_code == "allowed"
+    assert result.budget.spent_today == Decimal("3")
+    assert result.budget.remaining_today == Decimal("7.0000000")
+    assert result.budget.remaining_total == Decimal("15.0000000")
 
 
 @pytest.mark.parametrize(
@@ -94,6 +97,21 @@ def test_policy_denies_by_reason(payment_request, policy, kwargs, code):
     result = PolicyEngine(policy).evaluate(payment_request, **kwargs)
     assert not result.allowed
     assert result.reason_code == code
+
+
+def test_denied_policy_decision_includes_current_budget(payment_request):
+    policy = SpendPolicy(
+        allowed_networks=frozenset({Network.STELLAR_TESTNET}),
+        allowed_recipients=frozenset({"GRECIPIENT"}),
+        allowed_assets=frozenset({Asset("XLM")}),
+        daily_limit=3,
+    )
+
+    result = PolicyEngine(policy).evaluate(payment_request, spent_today=2)
+
+    assert not result.allowed
+    assert result.budget.daily_limit == Decimal("3")
+    assert result.budget.remaining_today == Decimal("1.0000000")
 
 
 def test_policy_expiry_and_spend_inputs_are_checked(payment_request):
