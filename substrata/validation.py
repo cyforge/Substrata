@@ -40,18 +40,27 @@ def normalize_origin(value: str) -> str:
         raise ValidationError("Origin cannot include credentials")
     if parsed.path not in {"", "/"} or parsed.query or parsed.fragment:
         raise ValidationError("Origin cannot include a path, query, or fragment")
+    if parsed.netloc.endswith(":"):
+        raise ValidationError("Origin port cannot be empty")
     if "%" in hostname:
         raise ValidationError("Origin host cannot include an IPv6 zone identifier")
     try:
         host = ip_address(hostname).compressed
     except ValueError:
         try:
-            host = hostname.encode("idna").decode("ascii").lower().rstrip(".")
+            if hostname.endswith(".."):
+                raise ValidationError("Origin host has repeated trailing dots")
+            dns_name = hostname[:-1] if hostname.endswith(".") else hostname
+            host = dns_name.encode("idna").decode("ascii").lower()
         except UnicodeError as exc:
             raise ValidationError("Origin host is invalid") from exc
-        if not host or any(
-            re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", label) is None
-            for label in host.split(".")
+        if (
+            not host
+            or len(host) > 253
+            or any(
+                re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", label) is None
+                for label in host.split(".")
+            )
         ):
             raise ValidationError("Origin host is invalid") from None
     if ":" in host:

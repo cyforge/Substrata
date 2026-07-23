@@ -60,7 +60,9 @@ def test_origin_normalization_canonicalizes_web_authority(origin, canonical):
         "https://example.com/path",
         "https://example.com?query=1",
         "https://example.com:70000",
+        "https://example.com:",
         "https://bad_host.example",
+        "https://example.com..",
     ],
 )
 def test_origin_normalization_rejects_non_origins(origin):
