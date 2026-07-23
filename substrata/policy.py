@@ -68,6 +68,22 @@ class SpendPolicy:
             "allowed_origins": sorted(self.allowed_origins),
         }
 
+    def intersect(self, other: SpendPolicy) -> SpendPolicy:
+        """Combine restrictions so result permits only actions allowed by both."""
+        if not isinstance(other, SpendPolicy):
+            raise ValidationError("Policy intersection requires another SpendPolicy")
+        expiries = [value for value in (self.expires_at, other.expires_at) if value is not None]
+        return SpendPolicy(
+            allowed_networks=self.allowed_networks & other.allowed_networks,
+            allowed_recipients=self.allowed_recipients & other.allowed_recipients,
+            allowed_assets=self.allowed_assets & other.allowed_assets,
+            max_payment=_minimum_limit(self.max_payment, other.max_payment),
+            daily_limit=_minimum_limit(self.daily_limit, other.daily_limit),
+            total_limit=_minimum_limit(self.total_limit, other.total_limit),
+            expires_at=min(expiries) if expiries else None,
+            allowed_origins=self.allowed_origins & other.allowed_origins,
+        )
+
     @classmethod
     def from_dict(cls, value: Mapping[str, object]) -> SpendPolicy:
         """Parse strict policy data; unknown fields fail closed."""
@@ -262,3 +278,11 @@ def _policy_amount(value: object, field_name: str) -> Decimal | None:
 def _amount_from_units(units: int) -> Decimal:
     whole, fraction = divmod(units, 10_000_000)
     return Decimal(f"{whole}.{fraction:07d}")
+
+
+def _minimum_limit(left: Decimal | None, right: Decimal | None) -> Decimal | None:
+    if left is None:
+        return right
+    if right is None:
+        return left
+    return min(left, right)

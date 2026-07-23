@@ -204,6 +204,42 @@ def test_spend_policy_json_round_trip_preserves_rules_and_exact_amounts():
     assert restored.allowed_assets == policy.allowed_assets
 
 
+def test_policy_intersection_combines_allowlists_caps_and_earliest_expiry():
+    expiry = datetime(2027, 1, 1, tzinfo=timezone.utc)
+    first = SpendPolicy(
+        allowed_networks=frozenset({Network.STELLAR_TESTNET, Network.STELLAR_MAINNET}),
+        allowed_recipients=frozenset({"GRECIPIENT", "GOTHER"}),
+        allowed_assets=frozenset({Asset("XLM"), Asset("USD", "GISSUER")}),
+        max_payment=10,
+        daily_limit=20,
+        expires_at=expiry + timedelta(days=1),
+        allowed_origins=frozenset({"https://shop.example", "https://other.example"}),
+    )
+    second = SpendPolicy(
+        allowed_networks=frozenset({Network.STELLAR_TESTNET}),
+        allowed_recipients=frozenset({"GRECIPIENT"}),
+        allowed_assets=frozenset({Asset("XLM")}),
+        max_payment=5,
+        total_limit=7,
+        expires_at=expiry,
+        allowed_origins=frozenset({"https://shop.example"}),
+    )
+
+    combined = first.intersect(second)
+
+    assert combined.allowed_networks == frozenset({Network.STELLAR_TESTNET})
+    assert combined.allowed_recipients == frozenset({"GRECIPIENT"})
+    assert combined.allowed_assets == frozenset({Asset("XLM")})
+    assert combined.max_payment == Decimal("5")
+    assert combined.daily_limit == Decimal("20")
+    assert combined.total_limit == Decimal("7")
+    assert combined.expires_at == expiry
+    assert combined.allowed_origins == frozenset({"https://shop.example"})
+
+    blocked = first.intersect(SpendPolicy())
+    assert not blocked.allowed_networks
+
+
 @pytest.mark.parametrize(
     "data",
     [
