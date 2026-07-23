@@ -200,7 +200,9 @@ class PolicyEngine:
         request_origin = origin if origin is not None else request.origin
         if origin is not None:
             request_origin = normalize_origin(origin)
-        if policy.allowed_origins and request_origin not in policy.allowed_origins:
+        if (request_origin is not None or policy.allowed_origins) and (
+            request_origin not in policy.allowed_origins
+        ):
             return self._deny("origin_denied", "Origin is not allowed", request, budget)
         request_units = amount_to_atomic_units(request.amount)
         if policy.max_payment is not None and request_units > amount_to_atomic_units(

@@ -47,6 +47,28 @@ def test_policy_normalizes_request_and_configured_origins():
     assert PolicyEngine(policy).evaluate(request).allowed
 
 
+def test_policy_denies_origin_context_when_allowlist_is_missing_or_mismatched():
+    request = PaymentRequest("GRECIPIENT", 1, Asset("XLM"), origin="https://shop.example")
+    base = {
+        "allowed_networks": frozenset({Network.STELLAR_TESTNET}),
+        "allowed_recipients": frozenset({"GRECIPIENT"}),
+        "allowed_assets": frozenset({Asset("XLM")}),
+    }
+    no_origin_policy = SpendPolicy(**base)
+    missing_request_origin_policy = SpendPolicy(
+        **base,
+        allowed_origins=frozenset({"https://shop.example"}),
+    )
+
+    assert PolicyEngine(no_origin_policy).evaluate(request).reason_code == "origin_denied"
+    assert (
+        PolicyEngine(missing_request_origin_policy)
+        .evaluate(PaymentRequest("GRECIPIENT", 1, Asset("XLM")))
+        .reason_code
+        == "origin_denied"
+    )
+
+
 @pytest.mark.parametrize(
     ("policy", "kwargs", "code"),
     [
@@ -70,6 +92,7 @@ def test_policy_normalizes_request_and_configured_origins():
                 allowed_recipients=frozenset({"GRECIPIENT"}),
                 allowed_assets=frozenset({Asset("XLM")}),
                 max_payment=1,
+                allowed_origins=frozenset({"https://shop.example"}),
             ),
             {},
             "payment_limit_exceeded",
@@ -80,6 +103,7 @@ def test_policy_normalizes_request_and_configured_origins():
                 allowed_recipients=frozenset({"GRECIPIENT"}),
                 allowed_assets=frozenset({Asset("XLM")}),
                 daily_limit=3,
+                allowed_origins=frozenset({"https://shop.example"}),
             ),
             {"spent_today": 2},
             "daily_limit_exceeded",
@@ -90,6 +114,7 @@ def test_policy_normalizes_request_and_configured_origins():
                 allowed_recipients=frozenset({"GRECIPIENT"}),
                 allowed_assets=frozenset({Asset("XLM")}),
                 total_limit=3,
+                allowed_origins=frozenset({"https://shop.example"}),
             ),
             {"spent_total": 2},
             "total_limit_exceeded",
