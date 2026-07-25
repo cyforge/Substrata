@@ -10,7 +10,14 @@ from typing import Mapping
 
 from .constants import Network
 from .errors import ValidationError
-from .models import Asset, BudgetMetadata, PaymentRequest, PolicyDecision, serialize_model
+from .models import (
+    Asset,
+    BudgetMetadata,
+    PaymentRequest,
+    PolicyDecision,
+    PolicyReasonCode,
+    serialize_model,
+)
 from .validation import AmountInput, amount_to_atomic_units, normalize_origin, validate_amount
 
 
@@ -170,10 +177,14 @@ class PolicyEngine:
             today = validate_amount(spent_today, positive=False)
         except ValidationError:
             return self._deny(
-                "invalid_spend", "Recorded spend must be a finite non-negative amount", request
+                PolicyReasonCode.INVALID_SPEND,
+                "Recorded spend must be a finite non-negative amount",
+                request,
             )
         if total < 0 or today < 0:
-            return self._deny("invalid_spend", "Recorded spend cannot be negative", request)
+            return self._deny(
+                PolicyReasonCode.INVALID_SPEND, "Recorded spend cannot be negative", request
+            )
 
         policy = self.policy
         today_units = amount_to_atomic_units(today)
@@ -206,44 +217,65 @@ class PolicyEngine:
         if current.tzinfo is None:
             raise ValidationError("Evaluation time must be timezone-aware")
         if policy.expires_at is not None and current >= policy.expires_at:
-            return self._deny("policy_expired", "Spend policy has expired", request, budget)
+            return self._deny(
+                PolicyReasonCode.POLICY_EXPIRED, "Spend policy has expired", request, budget
+            )
         if request.network not in policy.allowed_networks:
-            return self._deny("network_denied", "Network is not allowed", request, budget)
+            return self._deny(
+                PolicyReasonCode.NETWORK_DENIED, "Network is not allowed", request, budget
+            )
         if request.recipient not in policy.allowed_recipients:
-            return self._deny("recipient_denied", "Recipient is not allowed", request, budget)
+            return self._deny(
+                PolicyReasonCode.RECIPIENT_DENIED, "Recipient is not allowed", request, budget
+            )
         if request.asset not in policy.allowed_assets:
-            return self._deny("asset_denied", "Asset is not allowed", request, budget)
+            return self._deny(
+                PolicyReasonCode.ASSET_DENIED, "Asset is not allowed", request, budget
+            )
         request_origin = origin if origin is not None else request.origin
         if origin is not None:
             request_origin = normalize_origin(origin)
         if (request_origin is not None or policy.allowed_origins) and (
             request_origin not in policy.allowed_origins
         ):
-            return self._deny("origin_denied", "Origin is not allowed", request, budget)
+            return self._deny(
+                PolicyReasonCode.ORIGIN_DENIED, "Origin is not allowed", request, budget
+            )
         request_units = amount_to_atomic_units(request.amount)
         if policy.max_payment is not None and request_units > amount_to_atomic_units(
             policy.max_payment
         ):
             return self._deny(
-                "payment_limit_exceeded", "Payment exceeds per-payment limit", request, budget
+                PolicyReasonCode.PAYMENT_LIMIT_EXCEEDED,
+                "Payment exceeds per-payment limit",
+                request,
+                budget,
             )
         if policy.daily_limit is not None and today_units + request_units > amount_to_atomic_units(
             policy.daily_limit
         ):
             return self._deny(
-                "daily_limit_exceeded", "Payment exceeds remaining daily limit", request, budget
+                PolicyReasonCode.DAILY_LIMIT_EXCEEDED,
+                "Payment exceeds remaining daily limit",
+                request,
+                budget,
             )
         if policy.total_limit is not None and total_units + request_units > amount_to_atomic_units(
             policy.total_limit
         ):
             return self._deny(
-                "total_limit_exceeded", "Payment exceeds remaining total limit", request, budget
+                PolicyReasonCode.TOTAL_LIMIT_EXCEEDED,
+                "Payment exceeds remaining total limit",
+                request,
+                budget,
             )
-        return PolicyDecision(True, "allowed", "Payment is allowed", request.request_id, budget)
+        return PolicyDecision(
+            True, PolicyReasonCode.ALLOWED, "Payment is allowed", request.request_id, budget
+        )
 
     @staticmethod
     def _deny(
-        code: str,
+        code: PolicyReasonCode,
         reason: str,
         request: PaymentRequest,
         budget: BudgetMetadata | None = None,

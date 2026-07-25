@@ -9,6 +9,8 @@ from substrata.models import (
     PaymentRequest,
     PaymentResult,
     PaymentStatus,
+    PolicyDecision,
+    PolicyReasonCode,
     SignResponse,
     TransactionMetadata,
 )
@@ -106,6 +108,12 @@ def test_result_and_signing_payload_have_typed_immutable_data():
         PaymentResult("req", PaymentStatus.FAILED, transaction_id=" ")
     with pytest.raises(ValidationError):
         SignResponse({"transaction": "tx"}, signature=" ")
+    decision = PolicyDecision(True, PolicyReasonCode.ALLOWED, "Payment is allowed")
+    assert decision.reason_code == "allowed"
+    with pytest.raises(ValidationError):
+        PolicyDecision(True, "network_denied", "Network is not allowed")
+    with pytest.raises(ValidationError):
+        PolicyDecision(False, PolicyReasonCode.ALLOWED, "Payment is allowed")
 
 
 def test_transaction_metadata_validates_ledger_and_fee():

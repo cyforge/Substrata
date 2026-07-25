@@ -193,6 +193,19 @@ class PaymentStatus(StrEnum):
     UNCERTAIN = "uncertain"
 
 
+class PolicyReasonCode(StrEnum):
+    ALLOWED = "allowed"
+    NETWORK_DENIED = "network_denied"
+    RECIPIENT_DENIED = "recipient_denied"
+    ASSET_DENIED = "asset_denied"
+    PAYMENT_LIMIT_EXCEEDED = "payment_limit_exceeded"
+    DAILY_LIMIT_EXCEEDED = "daily_limit_exceeded"
+    TOTAL_LIMIT_EXCEEDED = "total_limit_exceeded"
+    POLICY_EXPIRED = "policy_expired"
+    ORIGIN_DENIED = "origin_denied"
+    INVALID_SPEND = "invalid_spend"
+
+
 @dataclass(frozen=True, slots=True)
 class BudgetMetadata:
     spent_today: Decimal
@@ -240,7 +253,7 @@ class PaymentResult:
 @dataclass(frozen=True, slots=True)
 class PolicyDecision:
     allowed: bool
-    reason_code: str
+    reason_code: str | PolicyReasonCode
     reason: str
     request_id: str | None = None
     budget: BudgetMetadata | None = None
@@ -249,6 +262,14 @@ class PolicyDecision:
         if not isinstance(self.allowed, bool):
             raise ValidationError("Allowed must be a bool")
         _nonempty(self.reason_code, "Reason code")
+        reason_code = (
+            self.reason_code.value
+            if isinstance(self.reason_code, PolicyReasonCode)
+            else self.reason_code
+        )
+        if self.allowed != (reason_code == PolicyReasonCode.ALLOWED.value):
+            raise ValidationError("Policy decision status and reason code disagree")
+        object.__setattr__(self, "reason_code", reason_code)
         _nonempty(self.reason, "Reason")
         if self.request_id is not None:
             _nonempty(self.request_id, "Request ID")
@@ -309,6 +330,7 @@ __all__ = [
     "PaymentResult",
     "PaymentStatus",
     "PolicyDecision",
+    "PolicyReasonCode",
     "SignRequest",
     "SignResponse",
     "TransactionMetadata",
