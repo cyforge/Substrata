@@ -241,6 +241,32 @@ def test_policy_intersection_combines_allowlists_caps_and_earliest_expiry():
 
 
 @pytest.mark.parametrize(
+    ("left_origins", "right_origins"),
+    [
+        (frozenset(), frozenset()),
+        (frozenset({"https://a.example"}), frozenset({"https://a.example"})),
+        (frozenset({"https://a.example"}), frozenset({"https://b.example"})),
+        (frozenset(), frozenset({"https://a.example"})),
+    ],
+)
+def test_intersection_never_allows_origin_context_rejected_by_parent(left_origins, right_origins):
+    baseline = {
+        "allowed_networks": frozenset({Network.STELLAR_TESTNET}),
+        "allowed_recipients": frozenset({"GRECIPIENT"}),
+        "allowed_assets": frozenset({Asset("XLM")}),
+    }
+    left = SpendPolicy(**baseline, allowed_origins=left_origins)
+    right = SpendPolicy(**baseline, allowed_origins=right_origins)
+    combined = left.intersect(right)
+
+    for origin in (None, "https://a.example", "https://b.example"):
+        request = PaymentRequest("GRECIPIENT", 1, Asset("XLM"), origin=origin)
+        combined_allowed = PolicyEngine(combined).evaluate(request).allowed
+        assert not combined_allowed or PolicyEngine(left).evaluate(request).allowed
+        assert not combined_allowed or PolicyEngine(right).evaluate(request).allowed
+
+
+@pytest.mark.parametrize(
     "data",
     [
         {"allowd_recipients": ["GRECIPIENT"]},
@@ -251,6 +277,7 @@ def test_policy_intersection_combines_allowlists_caps_and_earliest_expiry():
         {"expires_at": "2027-01-02T03:04Z"},
         {"expires_at": "2027-01-02T03:04:05+00"},
         {"allowed_assets": [{"code": "XLM", "extra": "typo"}]},
+        {"deny_all_origins": "false"},
     ],
 )
 def test_spend_policy_parser_rejects_unknown_or_malformed_fields(data):

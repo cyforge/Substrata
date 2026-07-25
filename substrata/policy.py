@@ -31,6 +31,7 @@ class SpendPolicy:
     total_limit: AmountInput | None = None
     expires_at: datetime | None = None
     allowed_origins: frozenset[str] = frozenset()
+    deny_all_origins: bool = False
 
     def __post_init__(self) -> None:
         for name in ("allowed_networks", "allowed_recipients", "allowed_assets", "allowed_origins"):
@@ -49,6 +50,8 @@ class SpendPolicy:
         for value in self.allowed_recipients | self.allowed_origins:
             if not isinstance(value, str) or not value.strip():
                 raise ValidationError("Allowed recipients and origins must be non-empty strings")
+        if not isinstance(self.deny_all_origins, bool):
+            raise ValidationError("deny_all_origins must be a bool")
         for name in ("max_payment", "daily_limit", "total_limit"):
             value = getattr(self, name)
             if value is not None:
@@ -73,6 +76,7 @@ class SpendPolicy:
             "total_limit": str(self.total_limit) if self.total_limit is not None else None,
             "expires_at": self.expires_at.isoformat() if self.expires_at is not None else None,
             "allowed_origins": sorted(self.allowed_origins),
+            "deny_all_origins": self.deny_all_origins,
         }
 
     def intersect(self, other: SpendPolicy) -> SpendPolicy:
@@ -89,6 +93,17 @@ class SpendPolicy:
             total_limit=_minimum_limit(self.total_limit, other.total_limit),
             expires_at=min(expiries) if expiries else None,
             allowed_origins=self.allowed_origins & other.allowed_origins,
+            deny_all_origins=(
+                self.deny_all_origins
+                or other.deny_all_origins
+                or (
+                    bool(self.allowed_origins) != bool(other.allowed_origins)
+                    or (
+                        bool(self.allowed_origins)
+                        and not (self.allowed_origins & other.allowed_origins)
+                    )
+                )
+            ),
         )
 
     @classmethod
@@ -107,6 +122,7 @@ class SpendPolicy:
             "total_limit",
             "expires_at",
             "allowed_origins",
+            "deny_all_origins",
         }
         extra = set(value) - allowed_fields
         if extra:
@@ -152,6 +168,7 @@ class SpendPolicy:
             total_limit=_policy_amount(value.get("total_limit"), "total_limit"),
             expires_at=expires_at,
             allowed_origins=frozenset(origins),
+            deny_all_origins=_optional_bool(value, "deny_all_origins", default=False),
         )
 
 
@@ -235,8 +252,9 @@ class PolicyEngine:
         request_origin = origin if origin is not None else request.origin
         if origin is not None:
             request_origin = normalize_origin(origin)
-        if (request_origin is not None or policy.allowed_origins) and (
-            request_origin not in policy.allowed_origins
+        if policy.deny_all_origins or (
+            (request_origin is not None or policy.allowed_origins)
+            and (request_origin not in policy.allowed_origins)
         ):
             return self._deny(
                 PolicyReasonCode.ORIGIN_DENIED, "Origin is not allowed", request, budget
@@ -305,6 +323,13 @@ def _policy_amount(value: object, field_name: str) -> Decimal | None:
     if not isinstance(value, str):
         raise ValidationError(f"{field_name} must be a decimal string or null")
     return validate_amount(value)
+
+
+def _optional_bool(value: Mapping[str, object], key: str, *, default: bool) -> bool:
+    result = value.get(key, default)
+    if not isinstance(result, bool):
+        raise ValidationError(f"{key} must be a bool")
+    return result
 
 
 def _amount_from_units(units: int) -> Decimal:
