@@ -127,4 +127,6 @@ def test_transaction_metadata_validates_ledger_and_fee():
     with pytest.raises(ValidationError):
         TransactionMetadata("tx", Network.STELLAR_TESTNET, raw=[])
     with pytest.raises(ValidationError):
+        TransactionMetadata("tx", Network.STELLAR_TESTNET, status="settled")
+    with pytest.raises(ValidationError):
         Asset("XLM", issuer="GISSUER")

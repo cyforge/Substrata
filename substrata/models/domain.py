@@ -305,6 +305,7 @@ class TransactionMetadata:
     fee: Decimal | None = None
     created_at: datetime | None = None
     raw: Mapping[str, object] = field(default_factory=dict)
+    status: PaymentStatus | None = None
 
     def __post_init__(self) -> None:
         _nonempty(self.transaction_id, "Transaction ID")
@@ -320,6 +321,8 @@ class TransactionMetadata:
             not isinstance(self.created_at, datetime) or self.created_at.tzinfo is None
         ):
             raise ValidationError("Transaction timestamp must be timezone-aware")
+        if self.status is not None and not isinstance(self.status, PaymentStatus):
+            raise ValidationError("Transaction status must be a PaymentStatus or None")
         object.__setattr__(self, "raw", _freeze_mapping(self.raw, "Raw transaction data"))
 
 

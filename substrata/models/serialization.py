@@ -81,6 +81,7 @@ def serialize_model(model: DomainModel) -> dict[str, JsonValue]:
             "fee": str(model.fee) if model.fee is not None else None,
             "created_at": model.created_at.isoformat() if model.created_at is not None else None,
             "raw": _json_value(dict(model.raw)),
+            "status": model.status.value if model.status is not None else None,
         }
     raise ValidationError(f"Unsupported model type: {type(model).__name__}")
 
@@ -170,7 +171,7 @@ def deserialize_model(model_type: type[DomainModel], value: Mapping[str, object]
     if model_type is TransactionMetadata:
         _check_fields(
             value,
-            {"transaction_id", "network", "ledger", "fee", "created_at", "raw"},
+            {"transaction_id", "network", "ledger", "fee", "created_at", "raw", "status"},
             {"transaction_id", "network"},
         )
         ledger = value.get("ledger")
@@ -184,6 +185,11 @@ def deserialize_model(model_type: type[DomainModel], value: Mapping[str, object]
             fee=_optional_decimal(value, "fee"),
             created_at=created_at,
             raw=_mapping(value.get("raw", {}), "raw"),
+            status=(
+                validate_enum(value["status"], PaymentStatus, field_name="status")
+                if value.get("status") is not None
+                else None
+            ),
         )
     raise ValidationError(f"Unsupported model type: {model_type.__name__}")
 

@@ -103,7 +103,13 @@ def test_policy_decision_serializes_budget_metadata_as_exact_strings():
         ),
         SignRequest(PaymentRequest("GRECIPIENT", Decimal("1"), Asset("XLM"))),
         SignResponse({"memo": "hello", "nested": ["one"]}, signature="abc"),
-        TransactionMetadata("tx", Network.STELLAR_TESTNET, ledger=123, fee=Decimal("0.1")),
+        TransactionMetadata(
+            "tx",
+            Network.STELLAR_TESTNET,
+            ledger=123,
+            fee=Decimal("0.1"),
+            status=PaymentStatus.SETTLED,
+        ),
     ],
 )
 def test_core_model_serialization_round_trips(model):
