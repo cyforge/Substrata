@@ -19,6 +19,7 @@ from .domain import (
     PaymentResult,
     PaymentStatus,
     PolicyDecision,
+    SignerFailure,
     SignRequest,
     SignResponse,
     TransactionMetadata,
@@ -32,6 +33,7 @@ DomainModel: TypeAlias = (
     | PolicyDecision
     | SignRequest
     | SignResponse
+    | SignerFailure
     | TransactionMetadata
 )
 
@@ -72,7 +74,18 @@ def serialize_model(model: DomainModel) -> dict[str, JsonValue]:
     if isinstance(model, SignRequest):
         return {"request": serialize_model(model.request)}
     if isinstance(model, SignResponse):
-        return {"payload": _json_value(dict(model.payload)), "signature": model.signature}
+        return {
+            "payload": _json_value(dict(model.payload)),
+            "signature": model.signature,
+            "failure": serialize_model(model.failure) if model.failure is not None else None,
+        }
+    if isinstance(model, SignerFailure):
+        return {
+            "code": model.code,
+            "message": model.message,
+            "retryable": model.retryable,
+            "provider": model.provider,
+        }
     if isinstance(model, TransactionMetadata):
         return {
             "transaction_id": model.transaction_id,
@@ -163,10 +176,29 @@ def deserialize_model(model_type: type[DomainModel], value: Mapping[str, object]
             raise ValidationError("Signing request data must be a mapping")
         return SignRequest(cast(PaymentRequest, deserialize_model(PaymentRequest, request)))
     if model_type is SignResponse:
-        _check_fields(value, {"payload", "signature"}, {"payload"})
+        _check_fields(value, {"payload", "signature", "failure"}, {"payload"})
+        failure_value = value.get("failure")
+        if failure_value is not None and not isinstance(failure_value, Mapping):
+            raise ValidationError("Signing failure data must be a mapping or null")
         return SignResponse(
             payload=_mapping(value["payload"], "payload"),
             signature=_optional_string(value, "signature"),
+            failure=(
+                cast(SignerFailure, deserialize_model(SignerFailure, failure_value))
+                if failure_value is not None
+                else None
+            ),
+        )
+    if model_type is SignerFailure:
+        _check_fields(value, {"code", "message", "retryable", "provider"}, {"code", "message"})
+        retryable = value.get("retryable", False)
+        if not isinstance(retryable, bool):
+            raise ValidationError("retryable must be a bool")
+        return SignerFailure(
+            code=_required_string(value, "code"),
+            message=_required_string(value, "message"),
+            retryable=retryable,
+            provider=_optional_string(value, "provider"),
         )
     if model_type is TransactionMetadata:
         _check_fields(

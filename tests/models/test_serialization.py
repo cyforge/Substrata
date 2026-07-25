@@ -12,6 +12,7 @@ from substrata.models import (
     PaymentResult,
     PaymentStatus,
     PolicyDecision,
+    SignerFailure,
     SignRequest,
     SignResponse,
     TransactionMetadata,
@@ -103,6 +104,13 @@ def test_policy_decision_serializes_budget_metadata_as_exact_strings():
         ),
         SignRequest(PaymentRequest("GRECIPIENT", Decimal("1"), Asset("XLM"))),
         SignResponse({"memo": "hello", "nested": ["one"]}, signature="abc"),
+        SignResponse(
+            {},
+            failure=SignerFailure(
+                "signer_unavailable", "Signer service is offline", retryable=True, provider="remote"
+            ),
+        ),
+        SignerFailure("invalid_request", "Request cannot be signed"),
         TransactionMetadata(
             "tx",
             Network.STELLAR_TESTNET,

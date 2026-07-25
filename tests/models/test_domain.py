@@ -11,6 +11,7 @@ from substrata.models import (
     PaymentStatus,
     PolicyDecision,
     PolicyReasonCode,
+    SignerFailure,
     SignResponse,
     TransactionMetadata,
 )
@@ -108,6 +109,15 @@ def test_result_and_signing_payload_have_typed_immutable_data():
         PaymentResult("req", PaymentStatus.FAILED, transaction_id=" ")
     with pytest.raises(ValidationError):
         SignResponse({"transaction": "tx"}, signature=" ")
+    failed_response = SignResponse(
+        {}, failure=SignerFailure("user_declined", "Signing request declined")
+    )
+    assert failed_response.succeeded is False
+    with pytest.raises(ValidationError):
+        SignResponse(
+            {"transaction": "tx"},
+            failure=SignerFailure("provider_error", "Remote signer failed"),
+        )
     decision = PolicyDecision(True, PolicyReasonCode.ALLOWED, "Payment is allowed")
     assert decision.reason_code == "allowed"
     with pytest.raises(ValidationError):

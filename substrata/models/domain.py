@@ -287,14 +287,40 @@ class SignRequest:
 
 
 @dataclass(frozen=True, slots=True)
+class SignerFailure:
+    code: str
+    message: str
+    retryable: bool = False
+    provider: str | None = None
+
+    def __post_init__(self) -> None:
+        _nonempty(self.code, "Signer failure code")
+        _nonempty(self.message, "Signer failure message")
+        if not isinstance(self.retryable, bool):
+            raise ValidationError("Signer retryable must be a bool")
+        if self.provider is not None:
+            _nonempty(self.provider, "Signer provider")
+
+
+@dataclass(frozen=True, slots=True)
 class SignResponse:
     payload: Mapping[str, object]
     signature: str | None = None
+    failure: SignerFailure | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "payload", _freeze_mapping(self.payload, "Signing payload"))
         if self.signature is not None:
             _nonempty(self.signature, "Signature")
+        if self.failure is not None:
+            if not isinstance(self.failure, SignerFailure):
+                raise ValidationError("Failure must be a SignerFailure or None")
+            if self.signature is not None or self.payload:
+                raise ValidationError("Failed signing response cannot include signed output")
+
+    @property
+    def succeeded(self) -> bool:
+        return self.failure is None
 
 
 @dataclass(frozen=True, slots=True)
@@ -336,5 +362,6 @@ __all__ = [
     "PolicyReasonCode",
     "SignRequest",
     "SignResponse",
+    "SignerFailure",
     "TransactionMetadata",
 ]
