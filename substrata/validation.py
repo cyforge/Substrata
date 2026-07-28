@@ -137,3 +137,15 @@ def amount_to_atomic_units(amount: Decimal) -> int:
     coefficient = int("".join(map(str, parts.digits)) or "0")
     units = coefficient * 10 ** (parts.exponent + 7)
     return -units if parts.sign else units
+
+
+def amount_from_atomic_units(units: int) -> Decimal:
+    """Convert non-negative integer stroops to an exact seven-place Decimal."""
+    if isinstance(units, bool) or not isinstance(units, int):
+        raise ValidationError("Atomic units must be an integer")
+    if units < 0:
+        raise ValidationError("Atomic units cannot be negative")
+    if units.bit_length() > 151:
+        raise ValidationError("Atomic units exceed supported size")
+    whole, fraction = divmod(units, 10_000_000)
+    return validate_amount(Decimal(f"{whole}.{fraction:07d}"), positive=False)

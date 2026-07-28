@@ -18,7 +18,13 @@ from .models import (
     PolicyReasonCode,
     serialize_model,
 )
-from .validation import AmountInput, amount_to_atomic_units, normalize_origin, validate_amount
+from .validation import (
+    AmountInput,
+    amount_from_atomic_units,
+    amount_to_atomic_units,
+    normalize_origin,
+    validate_amount,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -221,12 +227,12 @@ class PolicyEngine:
             daily_limit=policy.daily_limit,
             total_limit=policy.total_limit,
             remaining_today=(
-                _amount_from_units(max(0, daily_limit_units - today_units))
+                amount_from_atomic_units(max(0, daily_limit_units - today_units))
                 if daily_limit_units is not None
                 else None
             ),
             remaining_total=(
-                _amount_from_units(max(0, total_limit_units - total_units))
+                amount_from_atomic_units(max(0, total_limit_units - total_units))
                 if total_limit_units is not None
                 else None
             ),
@@ -337,11 +343,6 @@ def _optional_bool(value: Mapping[str, object], key: str, *, default: bool) -> b
     if not isinstance(result, bool):
         raise ValidationError(f"{key} must be a bool")
     return result
-
-
-def _amount_from_units(units: int) -> Decimal:
-    whole, fraction = divmod(units, 10_000_000)
-    return Decimal(f"{whole}.{fraction:07d}")
 
 
 def _minimum_limit(left: Decimal | None, right: Decimal | None) -> Decimal | None:

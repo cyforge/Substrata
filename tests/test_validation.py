@@ -5,6 +5,7 @@ import pytest
 
 from substrata.errors import ValidationError
 from substrata.validation import (
+    amount_from_atomic_units,
     amount_to_atomic_units,
     normalize_origin,
     origin_from_url,
@@ -128,3 +129,16 @@ def test_validate_amount_allows_nonnegative_zero_for_fee_fields():
 
 def test_amount_to_atomic_units_uses_exact_integer_conversion():
     assert amount_to_atomic_units(Decimal("1.2300001")) == 12_300_001
+
+
+@pytest.mark.parametrize("units", [0, 1, 12_300_001, 999_999_999_999_999_999])
+def test_amount_atomic_unit_conversions_round_trip_without_rounding(units):
+    amount = amount_from_atomic_units(units)
+
+    assert amount_to_atomic_units(amount) == units
+
+
+@pytest.mark.parametrize("units", [True, -1, "1", 1 << 256])
+def test_amount_from_atomic_units_rejects_invalid_or_oversized_values(units):
+    with pytest.raises(ValidationError):
+        amount_from_atomic_units(units)
