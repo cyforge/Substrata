@@ -25,6 +25,8 @@ def validate_required_string(value: str, *, field_name: str) -> str:
 def normalize_origin(value: str) -> str:
     """Validate and canonicalize an HTTP(S) origin for allowlist comparisons."""
     validate_required_string(value, field_name="Origin")
+    if len(value) > 2048:
+        raise ValidationError("Origin exceeds supported size")
     if any(character.isspace() or ord(character) < 32 for character in value):
         raise ValidationError("Origin cannot contain whitespace or control characters")
     try:

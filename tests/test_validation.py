@@ -70,6 +70,11 @@ def test_origin_normalization_rejects_non_origins(origin):
         normalize_origin(origin)
 
 
+def test_origin_normalization_bounds_input_size():
+    with pytest.raises(ValidationError, match="supported size"):
+        normalize_origin("https://" + "a" * 2049)
+
+
 @pytest.mark.parametrize("value", ["1.0000000", 1, Decimal("0.1")])
 def test_validate_amount_preserves_exact_decimal(value):
     assert validate_amount(value) == Decimal(str(value))

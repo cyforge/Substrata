@@ -111,6 +111,8 @@ class SpendPolicy:
         """Parse strict policy data; unknown fields fail closed."""
         if not isinstance(value, Mapping):
             raise ValidationError("Policy data must be a mapping")
+        if len(value) > 9:
+            raise ValidationError("Policy data exceeds supported field count")
         if not all(isinstance(key, str) for key in value):
             raise ValidationError("Policy field names must be strings")
         allowed_fields = {
@@ -132,7 +134,7 @@ class SpendPolicy:
         recipients = _string_list(value.get("allowed_recipients", []), "allowed_recipients")
         origins = _string_list(value.get("allowed_origins", []), "allowed_origins")
         raw_assets = value.get("allowed_assets", [])
-        if not isinstance(raw_assets, list):
+        if not isinstance(raw_assets, list) or len(raw_assets) > 10_000:
             raise ValidationError("allowed_assets must be a list")
         assets = []
         for raw_asset in raw_assets:
@@ -145,6 +147,7 @@ class SpendPolicy:
         if expiry_value is not None:
             if (
                 not isinstance(expiry_value, str)
+                or len(expiry_value) > 64
                 or re.fullmatch(
                     r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})",
                     expiry_value,
@@ -305,7 +308,11 @@ __all__ = ["PolicyEngine", "SpendPolicy"]
 
 
 def _string_list(value: object, field_name: str) -> list[str]:
-    if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
+    if (
+        not isinstance(value, list)
+        or len(value) > 10_000
+        or any(not isinstance(item, str) for item in value)
+    ):
         raise ValidationError(f"{field_name} must be a list of strings")
     return value
 

@@ -89,7 +89,7 @@ def test_soroban_factory_defaults_display_code_for_long_contract_ids():
     assert asset.currency_key == f"contract:{contract_id}"
 
 
-@pytest.mark.parametrize("code", ["usd", "A" * 13, "USD!", "EUR"])
+@pytest.mark.parametrize("code", ["usd", "A" * 13, "A" * 100_000, "USD!", "EUR"])
 def test_classic_asset_requires_valid_code_and_issuer_for_non_native(code):
     with pytest.raises(ValidationError):
         Asset(code)

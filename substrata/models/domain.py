@@ -100,7 +100,7 @@ class Asset:
 
     def __post_init__(self) -> None:
         _nonempty(self.code, "Asset code")
-        if re.fullmatch(r"[A-Z0-9]{1,12}", self.code) is None:
+        if len(self.code) > 12 or re.fullmatch(r"[A-Z0-9]{1,12}", self.code) is None:
             raise ValidationError(
                 "Asset code must contain 1 to 12 uppercase ASCII letters or digits"
             )

@@ -278,6 +278,8 @@ def test_intersection_never_allows_origin_context_rejected_by_parent(left_origin
         {"expires_at": "2027-01-02T03:04:05+00"},
         {"allowed_assets": [{"code": "XLM", "extra": "typo"}]},
         {"deny_all_origins": "false"},
+        {"allowed_recipients": ["recipient"] * 10_001},
+        {"expires_at": "2027-01-02T03:04:05Z" + "0" * 65},
     ],
 )
 def test_spend_policy_parser_rejects_unknown_or_malformed_fields(data):
