@@ -185,6 +185,11 @@ class PaymentRequest:
             object.__setattr__(self, "origin", normalize_origin(self.origin))
         object.__setattr__(self, "metadata", _freeze_mapping(self.metadata, "Metadata"))
 
+    @property
+    def currency_key(self) -> str:
+        """Return asset bucket identity scoped to this payment's network."""
+        return f"{self.network.value}:{self.asset.currency_key}"
+
 
 class PaymentStatus(StrEnum):
     PENDING = "pending"

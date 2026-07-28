@@ -89,6 +89,16 @@ def test_soroban_factory_defaults_display_code_for_long_contract_ids():
     assert asset.currency_key == f"contract:{contract_id}"
 
 
+def test_payment_currency_key_is_scoped_by_network():
+    asset = Asset.soroban("CCONTRACT", code="USD")
+    testnet = PaymentRequest("GRECIPIENT", 1, asset, Network.STELLAR_TESTNET)
+    mainnet = PaymentRequest("GRECIPIENT", 1, asset, Network.STELLAR_MAINNET)
+
+    assert testnet.currency_key == "stellar_testnet:contract:CCONTRACT"
+    assert mainnet.currency_key == "stellar_mainnet:contract:CCONTRACT"
+    assert testnet.currency_key != mainnet.currency_key
+
+
 @pytest.mark.parametrize("code", ["usd", "A" * 13, "A" * 100_000, "USD!", "EUR"])
 def test_classic_asset_requires_valid_code_and_issuer_for_non_native(code):
     with pytest.raises(ValidationError):
