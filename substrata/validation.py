@@ -89,6 +89,10 @@ def validate_amount(value: AmountInput, *, positive: bool = True) -> Decimal:
         raise ValidationError("Amount must be supplied as str, int, or Decimal")
     if not isinstance(value, (str, int, Decimal)):
         raise ValidationError("Amount must be supplied as str, int, or Decimal")
+    if isinstance(value, str) and len(value) > 128:
+        raise ValidationError("Amount text exceeds supported size")
+    if isinstance(value, int) and value.bit_length() > 128:
+        raise ValidationError("Amount integer exceeds supported size")
     try:
         amount = value if isinstance(value, Decimal) else Decimal(value)
     except (InvalidOperation, ValueError) as exc:

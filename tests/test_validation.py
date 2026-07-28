@@ -88,6 +88,8 @@ def test_validate_amount_preserves_exact_decimal(value):
         "1.00000001",
         "1e1000000000",
         "0e1000000000",
+        "1" * 129,
+        1 << 256,
     ],
 )
 def test_validate_amount_rejects_invalid_payment_values(value):
