@@ -72,6 +72,23 @@ def normalize_origin(value: str) -> str:
     return f"{scheme}://{host}{port_suffix}"
 
 
+def origin_from_url(value: str) -> str:
+    """Extract canonical origin from an absolute HTTP(S) resource URL."""
+    validate_required_string(value, field_name="URL")
+    if len(value) > 8192:
+        raise ValidationError("URL exceeds supported size")
+    try:
+        parsed = urlsplit(value)
+        if parsed.scheme.lower() not in {"http", "https"} or parsed.hostname is None:
+            raise ValidationError("URL must be absolute and use http or https")
+        if parsed.username is not None or parsed.password is not None:
+            raise ValidationError("URL cannot include credentials")
+        authority = parsed.netloc
+    except ValueError as exc:
+        raise ValidationError("URL is malformed") from exc
+    return normalize_origin(f"{parsed.scheme}://{authority}")
+
+
 def validate_enum(
     value: EnumValue | str, enum_type: type[EnumValue], *, field_name: str
 ) -> EnumValue:

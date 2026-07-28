@@ -7,6 +7,7 @@ from substrata.errors import ValidationError
 from substrata.validation import (
     amount_to_atomic_units,
     normalize_origin,
+    origin_from_url,
     validate_amount,
     validate_enum,
     validate_required_string,
@@ -73,6 +74,23 @@ def test_origin_normalization_rejects_non_origins(origin):
 def test_origin_normalization_bounds_input_size():
     with pytest.raises(ValidationError, match="supported size"):
         normalize_origin("https://" + "a" * 2049)
+
+
+@pytest.mark.parametrize(
+    ("url", "origin"),
+    [
+        ("https://EXAMPLE.com/v1/pay?asset=XLM", "https://example.com"),
+        ("http://localhost:8080/path", "http://localhost:8080"),
+    ],
+)
+def test_origin_from_url_extracts_canonical_authority(url, origin):
+    assert origin_from_url(url) == origin
+
+
+@pytest.mark.parametrize("url", ["/relative/path", "file:///tmp/file", "https://user@host/"])
+def test_origin_from_url_rejects_relative_or_non_web_urls(url):
+    with pytest.raises(ValidationError):
+        origin_from_url(url)
 
 
 @pytest.mark.parametrize("value", ["1.0000000", 1, Decimal("0.1")])
