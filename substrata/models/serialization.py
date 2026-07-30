@@ -230,9 +230,11 @@ def payment_request_fingerprint(request: PaymentRequest) -> str:
     """Hash canonical JSON representation of a complete payment request."""
     if not isinstance(request, PaymentRequest):
         raise ValidationError("Fingerprinting requires a PaymentRequest")
+    serialized = serialize_model(request)
+    serialized["amount"] = _canonical_amount(request.amount)
     try:
         canonical = json.dumps(
-            serialize_model(request),
+            serialized,
             sort_keys=True,
             separators=(",", ":"),
             ensure_ascii=False,
@@ -241,6 +243,27 @@ def payment_request_fingerprint(request: PaymentRequest) -> str:
     except (TypeError, ValueError, UnicodeEncodeError) as exc:
         raise ValidationError("Payment request cannot be fingerprinted") from exc
     return sha256(canonical).hexdigest()
+
+
+def _canonical_amount(value: Decimal) -> str:
+    parts = value.as_tuple()
+    digits = list(parts.digits)
+    if not any(digits):
+        return "0"
+    exponent = parts.exponent
+    while len(digits) > 1 and digits[-1] == 0:
+        digits.pop()
+        exponent += 1
+    coefficient = "".join(map(str, digits))
+    if exponent >= 0:
+        canonical = coefficient + "0" * exponent
+    else:
+        split = len(coefficient) + exponent
+        if split > 0:
+            canonical = f"{coefficient[:split]}.{coefficient[split:]}"
+        else:
+            canonical = f"0.{('0' * -split)}{coefficient}"
+    return f"-{canonical}" if parts.sign else canonical
 
 
 def _json_value(value: object) -> JsonValue:

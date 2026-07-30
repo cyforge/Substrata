@@ -151,4 +151,7 @@ def test_payment_request_fingerprint_is_canonical_and_binds_all_request_fields()
     changed = PaymentRequest("GRECIPIENT", 1, asset, request_id="same-id", metadata={"memo": "bye"})
 
     assert payment_request_fingerprint(left) == payment_request_fingerprint(right)
+    assert payment_request_fingerprint(left) == payment_request_fingerprint(
+        PaymentRequest("GRECIPIENT", "1.0000", asset, request_id="same-id", metadata=left.metadata)
+    )
     assert payment_request_fingerprint(left) != payment_request_fingerprint(changed)
