@@ -56,6 +56,8 @@ class SpendPolicy:
         for value in self.allowed_recipients | self.allowed_origins:
             if not isinstance(value, str) or not value.strip():
                 raise ValidationError("Allowed recipients and origins must be non-empty strings")
+            if len(value) > 2048:
+                raise ValidationError("Allowed recipient or origin exceeds supported size")
         if not isinstance(self.deny_all_origins, bool):
             raise ValidationError("deny_all_origins must be a bool")
         for name in ("max_payment", "daily_limit", "total_limit"):
@@ -317,7 +319,7 @@ def _string_list(value: object, field_name: str) -> list[str]:
     if (
         not isinstance(value, list)
         or len(value) > 10_000
-        or any(not isinstance(item, str) for item in value)
+        or any(not isinstance(item, str) or len(item) > 2048 for item in value)
     ):
         raise ValidationError(f"{field_name} must be a list of strings")
     return value

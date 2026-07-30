@@ -143,6 +143,8 @@ class Asset:
     def from_dict(cls, value: Mapping[str, object]) -> Asset:
         if not isinstance(value, Mapping):
             raise ValidationError("Asset data must be a mapping")
+        if len(value) > 3:
+            raise ValidationError("Asset data exceeds supported field count")
         if not all(isinstance(key, str) for key in value):
             raise ValidationError("Asset field names must be strings")
         extra = set(value) - {"code", "issuer", "contract_id"}
