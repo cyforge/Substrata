@@ -119,7 +119,7 @@ class Asset:
     def soroban(cls, contract_id: str, *, code: str | None = None) -> Asset:
         """Create asset value for a Soroban token contract, including SACs."""
         _nonempty(contract_id, "Asset contract ID")
-        return cls(code=code or "TOKEN", contract_id=contract_id)
+        return cls(code=code if code is not None else "TOKEN", contract_id=contract_id)
 
     @property
     def currency_key(self) -> str:

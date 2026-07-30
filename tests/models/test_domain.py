@@ -87,6 +87,8 @@ def test_soroban_factory_defaults_display_code_for_long_contract_ids():
     assert asset.code == "TOKEN"
     assert asset.contract_id == contract_id
     assert asset.currency_key == f"contract:{contract_id}"
+    with pytest.raises(ValidationError):
+        Asset.soroban(contract_id, code="")
 
 
 def test_payment_currency_key_is_scoped_by_network():
