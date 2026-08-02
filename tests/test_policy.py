@@ -204,6 +204,21 @@ def test_spend_policy_json_round_trip_preserves_rules_and_exact_amounts():
     assert restored.allowed_assets == policy.allowed_assets
 
 
+@pytest.mark.parametrize(
+    "field_value",
+    [
+        {"allowed_networks": None},
+        {"allowed_recipients": 7},
+        {"allowed_assets": "XLM"},
+        {"allowed_assets": [{"code": "XLM"}]},
+        {"allowed_origins": None},
+    ],
+)
+def test_spend_policy_constructor_rejects_malformed_collections(field_value):
+    with pytest.raises(ValidationError):
+        SpendPolicy(**field_value)
+
+
 def test_policy_intersection_combines_allowlists_caps_and_earliest_expiry():
     expiry = datetime(2027, 1, 1, tzinfo=timezone.utc)
     first = SpendPolicy(

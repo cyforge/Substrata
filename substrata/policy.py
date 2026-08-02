@@ -41,7 +41,14 @@ class SpendPolicy:
 
     def __post_init__(self) -> None:
         for name in ("allowed_networks", "allowed_recipients", "allowed_assets", "allowed_origins"):
-            object.__setattr__(self, name, frozenset(getattr(self, name)))
+            raw_values = getattr(self, name)
+            if not isinstance(raw_values, (list, tuple, set, frozenset)):
+                raise ValidationError(f"{name} must be a collection")
+            try:
+                values = frozenset(raw_values)
+            except TypeError as exc:
+                raise ValidationError(f"{name} contains unhashable values") from exc
+            object.__setattr__(self, name, values)
         object.__setattr__(
             self,
             "allowed_origins",
