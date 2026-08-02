@@ -63,7 +63,7 @@ class SpendPolicy:
         for name in ("max_payment", "daily_limit", "total_limit"):
             value = getattr(self, name)
             if value is not None:
-                amount = validate_amount(value)
+                amount = validate_amount(value, positive=False)
                 object.__setattr__(self, name, amount)
         if self.expires_at is not None and (
             not isinstance(self.expires_at, datetime) or self.expires_at.tzinfo is None
@@ -337,7 +337,7 @@ def _policy_amount(value: object, field_name: str) -> Decimal | None:
         return None
     if not isinstance(value, str):
         raise ValidationError(f"{field_name} must be a decimal string or null")
-    return validate_amount(value)
+    return validate_amount(value, positive=False)
 
 
 def _optional_bool(value: Mapping[str, object], key: str, *, default: bool) -> bool:
