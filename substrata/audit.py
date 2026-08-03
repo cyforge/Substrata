@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 import threading
@@ -63,6 +64,12 @@ class AuditLog:
         self._connection.execute(
             "CREATE INDEX IF NOT EXISTS audit_request_idx ON audit_events(request_id, event_id)"
         )
+        self._connection.execute(
+            "CREATE TABLE IF NOT EXISTS audit_chain ("
+            "event_id INTEGER PRIMARY KEY REFERENCES audit_events(event_id), "
+            "previous_hash TEXT NOT NULL, event_hash TEXT NOT NULL)"
+        )
+        self._backfill_chain()
 
     def close(self) -> None:
         with self._lock:
@@ -99,12 +106,37 @@ class AuditLog:
             connection = self._connection
             if connection is None:
                 raise RuntimeError("AuditLog is closed.")
-            cursor = connection.execute(
-                "INSERT INTO audit_events(event_type, request_id, created_at, data) "
-                "VALUES (?, ?, ?, ?)",
-                (event_type, request_id, _now(), serialized),
-            )
-            return int(cursor.lastrowid)
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                previous = connection.execute(
+                    "SELECT event_hash FROM audit_chain ORDER BY event_id DESC LIMIT 1"
+                ).fetchone()
+                previous_hash = previous[0] if previous is not None else "0" * 64
+                created_at = _now()
+                cursor = connection.execute(
+                    "INSERT INTO audit_events(event_type, request_id, created_at, data) "
+                    "VALUES (?, ?, ?, ?)",
+                    (event_type, request_id, created_at, serialized),
+                )
+                event_id = int(cursor.lastrowid)
+                event_hash = self._hash_event(
+                    previous_hash,
+                    event_id,
+                    event_type,
+                    request_id,
+                    created_at,
+                    serialized,
+                )
+                connection.execute(
+                    "INSERT INTO audit_chain(event_id, previous_hash, event_hash) VALUES (?, ?, ?)",
+                    (event_id, previous_hash, event_hash),
+                )
+                connection.execute("COMMIT")
+                return event_id
+            except Exception:
+                if connection.in_transaction:
+                    connection.execute("ROLLBACK")
+                raise
 
     def list_events(
         self,
@@ -148,6 +180,75 @@ class AuditLog:
             }
             for row in rows
         ]
+
+    def verify_chain(self) -> bool:
+        """Return whether stored events match their append-only hash chain."""
+        with self._lock:
+            connection = self._connection
+            if connection is None:
+                raise RuntimeError("AuditLog is closed.")
+            rows = connection.execute(
+                "SELECT e.event_id, e.event_type, e.request_id, e.created_at, e.data, "
+                "c.previous_hash, c.event_hash FROM audit_events AS e "
+                "LEFT JOIN audit_chain AS c USING(event_id) ORDER BY e.event_id"
+            ).fetchall()
+        expected_previous = "0" * 64
+        for row in rows:
+            if row[5] != expected_previous:
+                return False
+            expected_hash = self._hash_event(
+                expected_previous, row[0], row[1], row[2], row[3], row[4]
+            )
+            if row[6] != expected_hash:
+                return False
+            expected_previous = expected_hash
+        return True
+
+    def _backfill_chain(self) -> None:
+        """Create a baseline chain for audit rows written before chain support."""
+        connection = self._connection
+        assert connection is not None
+        chain_count = connection.execute("SELECT COUNT(*) FROM audit_chain").fetchone()[0]
+        if chain_count:
+            return
+        rows = connection.execute(
+            "SELECT event_id, event_type, request_id, created_at, data "
+            "FROM audit_events ORDER BY event_id"
+        ).fetchall()
+        if not rows:
+            return
+        connection.execute("BEGIN IMMEDIATE")
+        try:
+            previous_hash = "0" * 64
+            for row in rows:
+                event_hash = self._hash_event(previous_hash, row[0], row[1], row[2], row[3], row[4])
+                connection.execute(
+                    "INSERT INTO audit_chain(event_id, previous_hash, event_hash) VALUES (?, ?, ?)",
+                    (row[0], previous_hash, event_hash),
+                )
+                previous_hash = event_hash
+            connection.execute("COMMIT")
+        except Exception:
+            if connection.in_transaction:
+                connection.execute("ROLLBACK")
+            raise
+
+    @staticmethod
+    def _hash_event(
+        previous_hash: str,
+        event_id: int,
+        event_type: str,
+        request_id: str | None,
+        created_at: str,
+        serialized_data: str,
+    ) -> str:
+        canonical = json.dumps(
+            [event_id, event_type, request_id, created_at, json.loads(serialized_data)],
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        )
+        return hashlib.sha256(f"{previous_hash}\n{canonical}".encode("utf-8")).hexdigest()
 
     def export_jsonl(self, *, request_id: str | None = None, event_type: str | None = None) -> str:
         return "".join(

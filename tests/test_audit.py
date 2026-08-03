@@ -42,3 +42,42 @@ def test_audit_export_is_json_lines(tmp_path):
     audit.append("started", data={"attempt": 1})
     exported = audit.export_jsonl()
     assert json.loads(exported.splitlines()[0])["event_type"] == "started"
+
+
+def test_audit_hash_chain_detects_event_edits_and_survives_restart(tmp_path):
+    import sqlite3
+
+    path = tmp_path / "audit.sqlite3"
+    audit = AuditLog(path)
+    audit.append("started", request_id="pay-2", data={"attempt": 1})
+    audit.append("settled", request_id="pay-2", data={"tx": "abc"})
+    assert audit.verify_chain()
+    audit.close()
+
+    connection = sqlite3.connect(path)
+    connection.execute("UPDATE audit_events SET data = ? WHERE event_id = 1", ('{"attempt":2}',))
+    connection.commit()
+    connection.close()
+    reopened = AuditLog(path)
+    assert not reopened.verify_chain()
+    reopened.close()
+
+
+def test_legacy_audit_rows_receive_hash_baseline(tmp_path):
+    import sqlite3
+
+    path = tmp_path / "legacy-audit.sqlite3"
+    connection = sqlite3.connect(path)
+    connection.execute(
+        "CREATE TABLE audit_events (event_id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "event_type TEXT NOT NULL, request_id TEXT, created_at TEXT NOT NULL, data TEXT NOT NULL)"
+    )
+    connection.execute(
+        "INSERT INTO audit_events(event_type, request_id, created_at, data) VALUES (?, ?, ?, ?)",
+        ("legacy", None, "2026-01-01T00:00:00+00:00", "{}"),
+    )
+    connection.commit()
+    connection.close()
+    audit = AuditLog(path)
+    assert audit.verify_chain()
+    audit.close()
