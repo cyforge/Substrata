@@ -81,3 +81,24 @@ def test_legacy_audit_rows_receive_hash_baseline(tmp_path):
     audit = AuditLog(path)
     assert audit.verify_chain()
     audit.close()
+
+
+def test_export_includes_more_than_ten_thousand_events(tmp_path):
+    import sqlite3
+
+    path = tmp_path / "many-events.sqlite3"
+    audit = AuditLog(path)
+    audit.close()
+    connection = sqlite3.connect(path)
+    connection.executemany(
+        "INSERT INTO audit_events(event_type, request_id, created_at, data) VALUES (?, ?, ?, ?)",
+        (
+            ("bulk", None, f"2026-01-01T00:00:{index % 60:02d}+00:00", "{}")
+            for index in range(10001)
+        ),
+    )
+    connection.commit()
+    connection.close()
+    audit = AuditLog(path)
+    assert len(audit.export_jsonl().splitlines()) == 10001
+    audit.close()

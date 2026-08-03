@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 from ..errors import ValidationError
 
@@ -37,6 +37,7 @@ class LedgerEntry:
     settlement_id: str | None = None
     reason: str | None = None
     metadata: dict[str, Any] | None = None
+    request_fingerprint: str | None = None
 
 
 def _now() -> str:
@@ -50,11 +51,30 @@ def _decimal_units(value: Decimal, field: str, *, positive: bool = True) -> int:
         raise ValidationError(f"{field} must be greater than zero.")
     if not positive and value < 0:
         raise ValidationError(f"{field} must not be negative.")
-    numerator, denominator = value.as_integer_ratio()
-    scaled_numerator = numerator * _FACTOR
-    if scaled_numerator % denominator:
-        raise ValidationError(f"{field} supports at most {_SCALE} decimal places.")
-    units = scaled_numerator // denominator
+    sign, digits, exponent = value.as_tuple()
+    if not any(digits):
+        return 0
+    if sign:
+        raise ValidationError(f"{field} must not be negative.")
+    shift = exponent + _SCALE
+    if shift < 0:
+        places = -shift
+        trailing_zeroes = 0
+        for digit in reversed(digits):
+            if digit != 0:
+                break
+            trailing_zeroes += 1
+        if places > trailing_zeroes:
+            raise ValidationError(f"{field} supports at most {_SCALE} decimal places.")
+        unit_digits = digits[: len(digits) - places]
+        if len(unit_digits) > 19:
+            raise ValidationError(f"{field} exceeds SQLite's supported amount range.")
+        units = int("".join(str(digit) for digit in unit_digits))
+    else:
+        if len(digits) + shift > 19:
+            raise ValidationError(f"{field} exceeds SQLite's supported amount range.")
+        coefficient = int("".join(str(digit) for digit in digits))
+        units = coefficient * (10**shift)
     if units > 2**63 - 1:
         raise ValidationError(f"{field} exceeds SQLite's supported amount range.")
     return units
@@ -87,6 +107,7 @@ def _entry(row: sqlite3.Row) -> LedgerEntry:
         settlement_id=row["settlement_id"],
         reason=row["reason"],
         metadata=json.loads(row["metadata"]),
+        request_fingerprint=row["request_fingerprint"],
     )
 
 
@@ -339,7 +360,18 @@ class Ledger:
             f"AND status IN ({status_placeholders})"
         )
         if since is not None:
-            since_text = since.isoformat() if isinstance(since, datetime) else since
+            if isinstance(since, datetime):
+                parsed_since = since
+            elif isinstance(since, str):
+                try:
+                    parsed_since = datetime.fromisoformat(since.replace("Z", "+00:00"))
+                except ValueError as exc:
+                    raise ValidationError("since must be an ISO-8601 datetime.") from exc
+            else:
+                raise ValidationError("since must be a timezone-aware datetime or ISO-8601 string.")
+            if parsed_since.tzinfo is None or parsed_since.utcoffset() is None:
+                raise ValidationError("since must include a timezone.")
+            since_text = parsed_since.astimezone(UTC).isoformat(timespec="microseconds")
             query += " AND created_at >= ?"
             parameters.append(since_text)
         with self._lock:
@@ -348,6 +380,53 @@ class Ledger:
         if units > 2**63 - 1:
             raise ValidationError("Currency total exceeds supported accounting range.")
         return _amount(units)
+
+    def iter_entries(
+        self,
+        *,
+        currency: str | None = None,
+        status: str | None = None,
+        page_size: int = 1000,
+    ) -> Iterator[LedgerEntry]:
+        """Yield every matching row from one stable SQLite read snapshot."""
+        if (
+            isinstance(page_size, bool)
+            or not isinstance(page_size, int)
+            or not 1 <= page_size <= 10000
+        ):
+            raise ValidationError("page_size must be an integer from 1 to 10000.")
+        clauses: list[str] = []
+        parameters: list[Any] = []
+        if currency is not None:
+            clauses.append("currency = ?")
+            parameters.append(self._required_text(currency, "currency"))
+        if status is not None:
+            if status not in ("pending", "settled", "failed", "uncertain"):
+                raise ValidationError("Invalid ledger status.")
+            clauses.append("status = ?")
+            parameters.append(status)
+        where = " WHERE " + " AND ".join(clauses) if clauses else ""
+        with self._lock:
+            connection = self._conn()
+            connection.execute("BEGIN")
+            try:
+                offset = 0
+                while True:
+                    rows = connection.execute(
+                        f"SELECT * FROM ledger_entries{where} "
+                        "ORDER BY created_at, request_id LIMIT ? OFFSET ?",
+                        [*parameters, page_size, offset],
+                    ).fetchall()
+                    for row in rows:
+                        yield _entry(row)
+                    if len(rows) < page_size:
+                        break
+                    offset += len(rows)
+                connection.execute("COMMIT")
+            except Exception:
+                if connection.in_transaction:
+                    connection.execute("ROLLBACK")
+                raise
 
     def list_entries(
         self,
@@ -386,7 +465,7 @@ class Ledger:
         return [_entry(row) for row in rows]
 
     def export_jsonl(self, *, currency: str | None = None, status: str | None = None) -> str:
-        entries = self.list_entries(currency=currency, status=status, limit=10000)
+        entries = self.iter_entries(currency=currency, status=status)
         return "".join(
             json.dumps(
                 {
@@ -399,6 +478,7 @@ class Ledger:
                     "settlement_id": e.settlement_id,
                     "reason": e.reason,
                     "metadata": e.metadata,
+                    "request_fingerprint": e.request_fingerprint,
                 },
                 sort_keys=True,
                 separators=(",", ":"),

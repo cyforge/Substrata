@@ -6,6 +6,7 @@ import hashlib
 import json
 import sqlite3
 import threading
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -138,6 +139,59 @@ class AuditLog:
                     connection.execute("ROLLBACK")
                 raise
 
+    def iter_events(
+        self,
+        *,
+        request_id: str | None = None,
+        event_type: str | None = None,
+        page_size: int = 1000,
+    ) -> Iterator[dict[str, Any]]:
+        """Yield every matching event from one stable read snapshot."""
+        if (
+            isinstance(page_size, bool)
+            or not isinstance(page_size, int)
+            or not 1 <= page_size <= 10000
+        ):
+            raise ValidationError("page_size must be an integer from 1 to 10000.")
+        clauses: list[str] = []
+        parameters: list[Any] = []
+        if request_id is not None:
+            clauses.append("request_id = ?")
+            parameters.append(self._required(request_id, "request_id"))
+        if event_type is not None:
+            clauses.append("event_type = ?")
+            parameters.append(self._required(event_type, "event_type"))
+        where = " WHERE " + " AND ".join(clauses) if clauses else ""
+        with self._lock:
+            connection = self._connection
+            if connection is None:
+                raise RuntimeError("AuditLog is closed.")
+            connection.execute("BEGIN")
+            try:
+                offset = 0
+                while True:
+                    rows = connection.execute(
+                        "SELECT event_id, event_type, request_id, created_at, data "
+                        f"FROM audit_events{where} ORDER BY event_id LIMIT ? OFFSET ?",
+                        [*parameters, page_size, offset],
+                    ).fetchall()
+                    for row in rows:
+                        yield {
+                            "event_id": row[0],
+                            "event_type": row[1],
+                            "request_id": row[2],
+                            "created_at": row[3],
+                            "data": json.loads(row[4]),
+                        }
+                    if len(rows) < page_size:
+                        break
+                    offset += len(rows)
+                connection.execute("COMMIT")
+            except Exception:
+                if connection.in_transaction:
+                    connection.execute("ROLLBACK")
+                raise
+
     def list_events(
         self,
         *,
@@ -253,7 +307,7 @@ class AuditLog:
     def export_jsonl(self, *, request_id: str | None = None, event_type: str | None = None) -> str:
         return "".join(
             json.dumps(event, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n"
-            for event in self.list_events(request_id=request_id, event_type=event_type, limit=10000)
+            for event in self.iter_events(request_id=request_id, event_type=event_type)
         )
 
     @staticmethod

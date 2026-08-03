@@ -129,3 +129,25 @@ def test_total_overflow_is_rejected_without_sqlite_sum_error(tmp_path):
     with pytest.raises(ValidationError, match="range"):
         ledger.reserve("too-large-total", Decimal("0.0000001"), currency=CURRENCY)
     assert ledger.spent(CURRENCY) == maximum
+
+
+def test_since_requires_timezone_and_normalizes_offsets(tmp_path):
+    from datetime import datetime, timedelta, timezone
+
+    ledger = Ledger(tmp_path / "ledger.sqlite3")
+    entry = ledger.reserve("timed", Decimal("1"), currency=CURRENCY)
+    instant = datetime.fromisoformat(entry.created_at)
+    equivalent_offset = instant.astimezone(timezone(timedelta(hours=3)))
+    assert ledger.spent(CURRENCY, since=instant) == Decimal("1.0000000")
+    assert ledger.spent(CURRENCY, since=equivalent_offset.isoformat()) == Decimal("1.0000000")
+    for invalid in (datetime.now(), "2026-01-01T00:00:00", "bad-date", 12):
+        with pytest.raises(ValidationError, match="since"):
+            ledger.spent(CURRENCY, since=invalid)
+
+
+def test_amount_conversion_rejects_huge_exponents_without_large_intermediate(tmp_path):
+    ledger = Ledger(tmp_path / "ledger.sqlite3")
+    with pytest.raises(ValidationError, match="range"):
+        ledger.reserve("huge", Decimal("1E+999999999"), currency=CURRENCY)
+    with pytest.raises(ValidationError, match="decimal places"):
+        ledger.reserve("tiny", Decimal("1E-999999999"), currency=CURRENCY)
