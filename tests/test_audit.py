@@ -102,3 +102,35 @@ def test_export_includes_more_than_ten_thousand_events(tmp_path):
     audit = AuditLog(path)
     assert len(audit.export_jsonl().splitlines()) == 10001
     audit.close()
+
+
+def test_audit_rejects_non_dictionary_data_including_empty_lists(tmp_path):
+    import pytest
+
+    from substrata.errors import ValidationError
+
+    audit = AuditLog(tmp_path / "audit.sqlite3")
+    with pytest.raises(ValidationError, match="dictionary"):
+        audit.append("bad", data=[])
+    assert audit.append("empty") == 1
+    audit.close()
+
+
+def test_audit_chain_serializes_concurrent_writers_across_connections(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+
+    path = tmp_path / "shared-audit.sqlite3"
+    logs = [AuditLog(path) for _ in range(6)]
+    with ThreadPoolExecutor(max_workers=6) as executor:
+        list(
+            executor.map(
+                lambda pair: pair[1].append(
+                    "writer", request_id=f"req-{pair[0]}", data={"writer": pair[0]}
+                ),
+                enumerate(logs),
+            )
+        )
+    assert len(logs[0].list_events()) == 6
+    assert logs[0].verify_chain()
+    for audit in logs:
+        audit.close()

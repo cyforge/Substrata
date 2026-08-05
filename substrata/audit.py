@@ -94,9 +94,9 @@ class AuditLog:
         event_type = self._required(event_type, "event_type")
         if request_id is not None:
             request_id = self._required(request_id, "request_id")
-        clean_data = _redact(data or {})
-        if not isinstance(clean_data, dict):
+        if data is not None and not isinstance(data, dict):
             raise ValidationError("data must be a dictionary.")
+        clean_data = _redact(data if data is not None else {})
         try:
             serialized = json.dumps(
                 clean_data, sort_keys=True, separators=(",", ":"), allow_nan=False
@@ -262,17 +262,16 @@ class AuditLog:
         """Create a baseline chain for audit rows written before chain support."""
         connection = self._connection
         assert connection is not None
-        chain_count = connection.execute("SELECT COUNT(*) FROM audit_chain").fetchone()[0]
-        if chain_count:
-            return
-        rows = connection.execute(
-            "SELECT event_id, event_type, request_id, created_at, data "
-            "FROM audit_events ORDER BY event_id"
-        ).fetchall()
-        if not rows:
-            return
         connection.execute("BEGIN IMMEDIATE")
         try:
+            chain_count = connection.execute("SELECT COUNT(*) FROM audit_chain").fetchone()[0]
+            if chain_count:
+                connection.execute("COMMIT")
+                return
+            rows = connection.execute(
+                "SELECT event_id, event_type, request_id, created_at, data "
+                "FROM audit_events ORDER BY event_id"
+            ).fetchall()
             previous_hash = "0" * 64
             for row in rows:
                 event_hash = self._hash_event(previous_hash, row[0], row[1], row[2], row[3], row[4])
