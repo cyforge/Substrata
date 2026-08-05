@@ -260,6 +260,8 @@ class Ledger:
         metadata: dict[str, Any] | None = None,
     ) -> LedgerEntry:
         updates = _metadata(metadata)
+        if settlement_id is not None:
+            settlement_id = self._required_text(settlement_id, "settlement_id")
         return self._transition(
             request_id,
             LedgerStatus.SETTLED,
@@ -268,6 +270,8 @@ class Ledger:
         )
 
     def release(self, request_id: str, *, reason: str | None = None) -> LedgerEntry:
+        if reason is not None:
+            reason = self._required_text(reason, "reason")
         return self._transition(request_id, LedgerStatus.FAILED, reason=reason)
 
     def mark_uncertain(
@@ -277,6 +281,8 @@ class Ledger:
         reason: str | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> LedgerEntry:
+        if reason is not None:
+            reason = self._required_text(reason, "reason")
         return self._transition(
             request_id,
             LedgerStatus.UNCERTAIN,
@@ -311,6 +317,24 @@ class Ledger:
                         and row["settlement_id"] not in (None, settlement_id)
                     ):
                         raise ValidationError("Settlement ID conflicts with recorded settlement.")
+                    merged = json.loads(row["metadata"])
+                    if metadata:
+                        merged.update(json.loads(metadata))
+                    merged_json = _metadata(merged)
+                    if (
+                        merged_json != row["metadata"]
+                        or settlement_id is not None
+                        and row["settlement_id"] is None
+                    ):
+                        connection.execute(
+                            "UPDATE ledger_entries SET updated_at = ?, "
+                            "settlement_id = COALESCE(?, settlement_id), metadata = ? "
+                            "WHERE request_id = ?",
+                            (_now(), settlement_id, merged_json, request_id),
+                        )
+                        row = connection.execute(
+                            "SELECT * FROM ledger_entries WHERE request_id = ?", (request_id,)
+                        ).fetchone()
                     connection.execute("COMMIT")
                     return _entry(row)
                 if current in (LedgerStatus.FAILED, LedgerStatus.SETTLED):

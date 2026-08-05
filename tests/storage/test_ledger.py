@@ -151,3 +151,27 @@ def test_amount_conversion_rejects_huge_exponents_without_large_intermediate(tmp
         ledger.reserve("huge", Decimal("1E+999999999"), currency=CURRENCY)
     with pytest.raises(ValidationError, match="decimal places"):
         ledger.reserve("tiny", Decimal("1E-999999999"), currency=CURRENCY)
+
+
+def test_repeated_commit_fills_missing_settlement_id_and_merges_receipt_metadata(tmp_path):
+    ledger = Ledger(tmp_path / "ledger.sqlite3")
+    ledger.reserve("receipt", Decimal("1"), currency=CURRENCY)
+    first = ledger.commit("receipt", metadata={"sequence": "42"})
+    assert first.status == "settled"
+    assert first.settlement_id is None
+    repeated = ledger.commit("receipt", settlement_id="tx-hash", metadata={"fee": "0.00001"})
+    assert repeated.settlement_id == "tx-hash"
+    assert repeated.metadata == {"sequence": "42", "fee": "0.00001"}
+    assert ledger.commit("receipt", settlement_id="tx-hash") == repeated
+    with pytest.raises(ValidationError, match="conflicts"):
+        ledger.commit("receipt", settlement_id="different-hash")
+
+
+def test_invalid_settlement_metadata_and_identifiers_are_rejected(tmp_path):
+    ledger = Ledger(tmp_path / "ledger.sqlite3")
+    ledger.reserve("receipt", Decimal("1"), currency=CURRENCY)
+    for settlement_id in ("", "  "):
+        with pytest.raises(ValidationError, match="settlement_id"):
+            ledger.commit("receipt", settlement_id=settlement_id)
+    with pytest.raises(ValidationError, match="metadata"):
+        ledger.commit("receipt", metadata={"value": object()})
