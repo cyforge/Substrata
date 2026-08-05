@@ -40,6 +40,12 @@ class LedgerEntry:
     request_fingerprint: str | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class Reservation:
+    entry: LedgerEntry
+    created: bool
+
+
 def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="microseconds")
 
@@ -189,6 +195,28 @@ class Ledger:
         request_fingerprint: str | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> LedgerEntry:
+        """Reserve budget and return existing or newly created entry."""
+        return self.reserve_once(
+            request_id,
+            amount,
+            currency=currency,
+            limit=limit,
+            daily_limit=daily_limit,
+            request_fingerprint=request_fingerprint,
+            metadata=metadata,
+        ).entry
+
+    def reserve_once(
+        self,
+        request_id: str,
+        amount: Decimal,
+        *,
+        currency: str,
+        limit: Decimal | None = None,
+        daily_limit: Decimal | None = None,
+        request_fingerprint: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> Reservation:
         request_id = self._required_text(request_id, "request_id")
         currency = self._required_text(currency, "currency")
         units = _decimal_units(amount, "amount")
@@ -217,7 +245,7 @@ class Ledger:
                     ):
                         raise ValidationError("request_id already belongs to a different payment.")
                     connection.execute("COMMIT")
-                    return _entry(existing)
+                    return Reservation(_entry(existing), created=False)
                 spent_rows = connection.execute(
                     "SELECT amount_units, created_at FROM ledger_entries "
                     "WHERE currency = ? AND status IN ('pending','uncertain','settled')",
@@ -246,7 +274,7 @@ class Ledger:
                     "SELECT * FROM ledger_entries WHERE request_id = ?", (request_id,)
                 ).fetchone()
                 connection.execute("COMMIT")
-                return _entry(row)
+                return Reservation(_entry(row), created=True)
             except Exception:
                 if connection.in_transaction:
                     connection.execute("ROLLBACK")

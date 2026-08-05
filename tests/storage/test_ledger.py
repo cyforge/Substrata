@@ -175,3 +175,24 @@ def test_invalid_settlement_metadata_and_identifiers_are_rejected(tmp_path):
             ledger.commit("receipt", settlement_id=settlement_id)
     with pytest.raises(ValidationError, match="metadata"):
         ledger.commit("receipt", metadata={"value": object()})
+
+
+def test_reserve_once_returns_creation_signal_atomically(tmp_path):
+    path = tmp_path / "ledger.sqlite3"
+    ledgers = [Ledger(path) for _ in range(8)]
+
+    def reserve(index):
+        return ledgers[index].reserve_once(
+            "same-payment",
+            Decimal("1"),
+            currency=CURRENCY,
+            request_fingerprint="recipient:GABC",
+        )
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        reservations = list(executor.map(reserve, range(8)))
+    assert sum(item.created for item in reservations) == 1
+    assert {item.entry.request_id for item in reservations} == {"same-payment"}
+    assert all(item.entry.status == "pending" for item in reservations)
+    for ledger in ledgers:
+        ledger.close()
