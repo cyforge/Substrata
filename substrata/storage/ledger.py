@@ -157,13 +157,20 @@ class Ledger:
                     ON ledger_entries(created_at);
                 """
             )
-            columns = {
-                row[1] for row in self._connection.execute("PRAGMA table_info(ledger_entries)")
-            }
-            if "request_fingerprint" not in columns:
-                self._connection.execute(
-                    "ALTER TABLE ledger_entries ADD COLUMN request_fingerprint TEXT"
-                )
+            self._connection.execute("BEGIN IMMEDIATE")
+            try:
+                columns = {
+                    row[1] for row in self._connection.execute("PRAGMA table_info(ledger_entries)")
+                }
+                if "request_fingerprint" not in columns:
+                    self._connection.execute(
+                        "ALTER TABLE ledger_entries ADD COLUMN request_fingerprint TEXT"
+                    )
+                self._connection.execute("COMMIT")
+            except Exception:
+                if self._connection.in_transaction:
+                    self._connection.execute("ROLLBACK")
+                raise
         except sqlite3.Error as exc:
             raise ValidationError(f"Unable to open ledger: {exc}") from exc
 

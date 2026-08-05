@@ -196,3 +196,60 @@ def test_reserve_once_returns_creation_signal_atomically(tmp_path):
     assert all(item.entry.status == "pending" for item in reservations)
     for ledger in ledgers:
         ledger.close()
+
+
+def test_legacy_ledger_schema_migrates_without_losing_rows(tmp_path):
+    import sqlite3
+
+    path = tmp_path / "legacy.sqlite3"
+    connection = sqlite3.connect(path)
+    connection.execute(
+        "CREATE TABLE ledger_entries ("
+        "request_id TEXT PRIMARY KEY, amount_units INTEGER NOT NULL, currency TEXT NOT NULL, "
+        "status TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, "
+        "settlement_id TEXT, reason TEXT, metadata TEXT NOT NULL)"
+    )
+    connection.execute(
+        "INSERT INTO ledger_entries VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            "old-request",
+            25_000_000,
+            CURRENCY,
+            "pending",
+            "2026-01-01T00:00:00+00:00",
+            "2026-01-01T00:00:00+00:00",
+            None,
+            None,
+            "{}",
+        ),
+    )
+    connection.commit()
+    connection.close()
+
+    ledger = Ledger(path)
+    migrated = ledger.get("old-request")
+    assert migrated is not None
+    assert migrated.amount == Decimal("2.5000000")
+    assert migrated.request_fingerprint is None
+    assert ledger.reserve("old-request", Decimal("2.5"), currency=CURRENCY) == migrated
+    ledger.close()
+
+
+def test_concurrent_legacy_schema_migration_runs_once(tmp_path):
+    import sqlite3
+
+    path = tmp_path / "legacy-concurrent.sqlite3"
+    connection = sqlite3.connect(path)
+    connection.execute(
+        "CREATE TABLE ledger_entries ("
+        "request_id TEXT PRIMARY KEY, amount_units INTEGER NOT NULL, currency TEXT NOT NULL, "
+        "status TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, "
+        "settlement_id TEXT, reason TEXT, metadata TEXT NOT NULL)"
+    )
+    connection.commit()
+    connection.close()
+
+    with ThreadPoolExecutor(max_workers=6) as executor:
+        ledgers = list(executor.map(lambda _: Ledger(path), range(6)))
+    for ledger in ledgers:
+        ledger.close()
