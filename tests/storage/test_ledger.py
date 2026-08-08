@@ -291,7 +291,7 @@ def test_concurrent_daily_budget_reservations_share_one_atomic_limit(tmp_path):
 
 
 def test_spent_today_reports_current_reservations(tmp_path):
-    from datetime import UTC, date, datetime
+    from datetime import UTC, datetime
 
     ledger = Ledger(tmp_path / "ledger.sqlite3")
     ledger.reserve("today-one", Decimal("0.4"), currency=CURRENCY)
@@ -303,3 +303,16 @@ def test_spent_today_reports_current_reservations(tmp_path):
     ) == Decimal("0")
     with pytest.raises(ValidationError, match="calendar date"):
         ledger.spent_today(CURRENCY, today=datetime.now(UTC))
+
+
+def test_context_manager_closes_idempotently_and_rejects_reentry(tmp_path):
+    ledger = Ledger(tmp_path / "ledger.sqlite3")
+    with ledger as active:
+        assert active is ledger
+        active.reserve("context", Decimal("1"), currency=CURRENCY)
+    ledger.close()
+    with pytest.raises(RuntimeError, match="closed"):
+        with ledger:
+            pass
+    with pytest.raises(RuntimeError, match="closed"):
+        ledger.get("context")

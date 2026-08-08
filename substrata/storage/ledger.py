@@ -181,6 +181,7 @@ class Ledger:
                 self._connection = None
 
     def __enter__(self) -> "Ledger":
+        self._conn()
         return self
 
     def __exit__(self, exc_type: object, exc: object, traceback: object) -> None:
