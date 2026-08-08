@@ -4,10 +4,19 @@ from __future__ import annotations
 
 import sqlite3
 import threading
+from dataclasses import dataclass
 from pathlib import Path
 
 from ..errors import ValidationError
 from .ledger import _now
+
+
+@dataclass(frozen=True, slots=True)
+class ReplayClaim:
+    scope: str
+    proof_id: str
+    digest: str | None
+    claimed_at: str
 
 
 class ReplayStore:
@@ -71,6 +80,34 @@ class ReplayStore:
                 if connection.in_transaction:
                     connection.execute("ROLLBACK")
                 raise
+
+    def get_claim(self, scope: str, proof_id: str) -> ReplayClaim | None:
+        scope = self._required(scope, "scope")
+        proof_id = self._required(proof_id, "proof_id")
+        with self._lock:
+            connection = self._connection
+            if connection is None:
+                raise RuntimeError("ReplayStore is closed.")
+            row = connection.execute(
+                "SELECT scope, proof_id, digest, claimed_at FROM replay_claims "
+                "WHERE scope = ? AND proof_id = ?",
+                (scope, proof_id),
+            ).fetchone()
+        if row is None:
+            return None
+        return ReplayClaim(scope=row[0], proof_id=row[1], digest=row[2], claimed_at=row[3])
+
+    def count_claims(self, *, scope: str | None = None) -> int:
+        query = "SELECT COUNT(*) FROM replay_claims"
+        parameters: tuple[str, ...] = ()
+        if scope is not None:
+            query += " WHERE scope = ?"
+            parameters = (self._required(scope, "scope"),)
+        with self._lock:
+            connection = self._connection
+            if connection is None:
+                raise RuntimeError("ReplayStore is closed.")
+            return int(connection.execute(query, parameters).fetchone()[0])
 
     @staticmethod
     def _required(value: str, field: str) -> str:
