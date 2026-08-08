@@ -31,7 +31,7 @@ class LedgerEntry:
     request_id: str
     amount: Decimal
     currency: str
-    status: str
+    status: LedgerStatus
     created_at: str
     updated_at: str
     settlement_id: str | None = None
@@ -107,7 +107,7 @@ def _entry(row: sqlite3.Row) -> LedgerEntry:
         request_id=row["request_id"],
         amount=_amount(row["amount_units"]),
         currency=row["currency"],
-        status=row["status"],
+        status=LedgerStatus(row["status"]),
         created_at=row["created_at"],
         updated_at=row["updated_at"],
         settlement_id=row["settlement_id"],

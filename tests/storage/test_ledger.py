@@ -4,7 +4,7 @@ from decimal import Decimal
 import pytest
 
 from substrata.errors import ValidationError
-from substrata.storage import Ledger
+from substrata.storage import Ledger, LedgerStatus
 
 CURRENCY = "stellar:testnet:XLM"
 
@@ -253,3 +253,11 @@ def test_concurrent_legacy_schema_migration_runs_once(tmp_path):
         ledgers = list(executor.map(lambda _: Ledger(path), range(6)))
     for ledger in ledgers:
         ledger.close()
+
+
+def test_entries_expose_typed_status_enum(tmp_path):
+    ledger = Ledger(tmp_path / "ledger.sqlite3")
+    entry = ledger.reserve("typed", Decimal("1"), currency=CURRENCY)
+    assert entry.status is LedgerStatus.PENDING
+    assert ledger.commit("typed").status is LedgerStatus.SETTLED
+    assert LedgerStatus.FAILED.value == "failed"
