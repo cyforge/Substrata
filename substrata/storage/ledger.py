@@ -6,7 +6,7 @@ import json
 import sqlite3
 import threading
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, time
 from decimal import Decimal
 from enum import Enum
 from pathlib import Path
@@ -439,6 +439,20 @@ class Ledger:
         if units > 2**63 - 1:
             raise ValidationError("Currency total exceeds supported accounting range.")
         return _amount(units)
+
+    def spent_today(
+        self,
+        currency: str,
+        *,
+        today: date | None = None,
+        include_pending: bool = True,
+    ) -> Decimal:
+        """Return current UTC-day spend, including reservations by default."""
+        if today is not None and (not isinstance(today, date) or isinstance(today, datetime)):
+            raise ValidationError("today must be a calendar date.")
+        utc_day = today or datetime.now(UTC).date()
+        start = datetime.combine(utc_day, time.min, tzinfo=UTC)
+        return self.spent(currency, include_pending=include_pending, since=start)
 
     def iter_entries(
         self,

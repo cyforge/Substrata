@@ -261,3 +261,45 @@ def test_entries_expose_typed_status_enum(tmp_path):
     assert entry.status is LedgerStatus.PENDING
     assert ledger.commit("typed").status is LedgerStatus.SETTLED
     assert LedgerStatus.FAILED.value == "failed"
+
+
+def test_concurrent_daily_budget_reservations_share_one_atomic_limit(tmp_path):
+    path = tmp_path / "ledger.sqlite3"
+    ledgers = [Ledger(path) for _ in range(8)]
+
+    def reserve(index):
+        try:
+            return (
+                ledgers[index]
+                .reserve_once(
+                    f"daily-{index}",
+                    Decimal("0.2"),
+                    currency=CURRENCY,
+                    daily_limit=Decimal("0.5"),
+                )
+                .created
+            )
+        except ValidationError:
+            return False
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        results = list(executor.map(reserve, range(8)))
+    assert sum(results) == 2
+    assert ledgers[0].spent(CURRENCY) == Decimal("0.4000000")
+    for ledger in ledgers:
+        ledger.close()
+
+
+def test_spent_today_reports_current_reservations(tmp_path):
+    from datetime import UTC, date, datetime
+
+    ledger = Ledger(tmp_path / "ledger.sqlite3")
+    ledger.reserve("today-one", Decimal("0.4"), currency=CURRENCY)
+    ledger.reserve("today-two", Decimal("0.3"), currency=CURRENCY)
+    assert ledger.spent_today(CURRENCY) == Decimal("0.7000000")
+    assert ledger.spent_today(CURRENCY, today=datetime.now(UTC).date()) == Decimal("0.7000000")
+    assert ledger.spent_today(
+        CURRENCY, today=datetime.now(UTC).date(), include_pending=False
+    ) == Decimal("0")
+    with pytest.raises(ValidationError, match="calendar date"):
+        ledger.spent_today(CURRENCY, today=datetime.now(UTC))
