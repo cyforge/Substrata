@@ -316,3 +316,14 @@ def test_context_manager_closes_idempotently_and_rejects_reentry(tmp_path):
             pass
     with pytest.raises(RuntimeError, match="closed"):
         ledger.get("context")
+
+
+def test_count_entries_filters_by_currency_and_typed_status(tmp_path):
+    ledger = Ledger(tmp_path / "ledger.sqlite3")
+    ledger.reserve("pending", Decimal("1"), currency=CURRENCY)
+    ledger.reserve("other", Decimal("1"), currency="stellar:pubnet:XLM")
+    ledger.commit("other")
+    assert ledger.count_entries() == 2
+    assert ledger.count_entries(currency=CURRENCY) == 1
+    assert ledger.count_entries(status=LedgerStatus.SETTLED) == 1
+    assert ledger.count_entries(currency=CURRENCY, status=LedgerStatus.FAILED) == 0

@@ -475,10 +475,11 @@ class Ledger:
             clauses.append("currency = ?")
             parameters.append(self._required_text(currency, "currency"))
         if status is not None:
-            if status not in ("pending", "settled", "failed", "uncertain"):
+            status_value = status.value if isinstance(status, LedgerStatus) else status
+            if status_value not in ("pending", "settled", "failed", "uncertain"):
                 raise ValidationError("Invalid ledger status.")
             clauses.append("status = ?")
-            parameters.append(status)
+            parameters.append(status_value)
         where = " WHERE " + " AND ".join(clauses) if clauses else ""
         with self._lock:
             connection = self._conn()
@@ -506,7 +507,7 @@ class Ledger:
         self,
         *,
         currency: str | None = None,
-        status: str | None = None,
+        status: str | LedgerStatus | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> list[LedgerEntry]:
@@ -537,6 +538,33 @@ class Ledger:
                 .fetchall()
             )
         return [_entry(row) for row in rows]
+
+    def count_entries(
+        self,
+        *,
+        currency: str | None = None,
+        status: str | LedgerStatus | None = None,
+    ) -> int:
+        """Count rows matching optional currency and status filters."""
+        clauses: list[str] = []
+        parameters: list[Any] = []
+        if currency is not None:
+            clauses.append("currency = ?")
+            parameters.append(self._required_text(currency, "currency"))
+        if status is not None:
+            status_value = status.value if isinstance(status, LedgerStatus) else status
+            if status_value not in ("pending", "settled", "failed", "uncertain"):
+                raise ValidationError("Invalid ledger status.")
+            clauses.append("status = ?")
+            parameters.append(status_value)
+        where = " WHERE " + " AND ".join(clauses) if clauses else ""
+        with self._lock:
+            result = (
+                self._conn()
+                .execute(f"SELECT COUNT(*) FROM ledger_entries{where}", parameters)
+                .fetchone()
+            )
+        return int(result[0])
 
     def export_jsonl(self, *, currency: str | None = None, status: str | None = None) -> str:
         entries = self.iter_entries(currency=currency, status=status)
