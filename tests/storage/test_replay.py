@@ -43,3 +43,16 @@ def test_claim_evidence_can_be_queried_and_digest_conflicts_rejected(tmp_path):
     with pytest.raises(ValidationError, match="different digest"):
         store.claim("stellar:testnet", "proof-1", digest="digest-b")
     assert store.get_claim("stellar:testnet", "missing") is None
+
+
+def test_replay_store_context_manager_closes_and_rejects_reentry(tmp_path):
+    store = ReplayStore(tmp_path / "claims.sqlite3")
+    with store as active:
+        assert active is store
+        assert active.claim("stellar:testnet", "proof")
+    store.close()
+    with pytest.raises(RuntimeError, match="closed"):
+        with store:
+            pass
+    with pytest.raises(RuntimeError, match="closed"):
+        store.claim("stellar:testnet", "another-proof")

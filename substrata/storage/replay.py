@@ -44,6 +44,8 @@ class ReplayStore:
                 self._connection = None
 
     def __enter__(self) -> "ReplayStore":
+        if self._connection is None:
+            raise RuntimeError("ReplayStore is closed.")
         return self
 
     def __exit__(self, exc_type: object, exc: object, traceback: object) -> None:
