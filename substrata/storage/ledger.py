@@ -155,6 +155,8 @@ class Ledger:
                     ON ledger_entries(currency, status);
                 CREATE INDEX IF NOT EXISTS ledger_created_idx
                     ON ledger_entries(created_at);
+                CREATE INDEX IF NOT EXISTS ledger_settlement_idx
+                    ON ledger_entries(settlement_id) WHERE settlement_id IS NOT NULL;
                 """
             )
             self._connection.execute("BEGIN IMMEDIATE")
@@ -534,6 +536,23 @@ class Ledger:
                     f"SELECT * FROM ledger_entries{where} ORDER BY created_at, request_id "
                     "LIMIT ? OFFSET ?",
                     parameters,
+                )
+                .fetchall()
+            )
+        return [_entry(row) for row in rows]
+
+    def find_by_settlement_id(self, settlement_id: str, *, limit: int = 100) -> list[LedgerEntry]:
+        """Find ledger entries reconciled by one provider or chain transaction."""
+        settlement_id = self._required_text(settlement_id, "settlement_id")
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 10000:
+            raise ValidationError("limit must be an integer from 1 to 10000.")
+        with self._lock:
+            rows = (
+                self._conn()
+                .execute(
+                    "SELECT * FROM ledger_entries WHERE settlement_id = ? "
+                    "ORDER BY created_at, request_id LIMIT ?",
+                    (settlement_id, limit),
                 )
                 .fetchall()
             )

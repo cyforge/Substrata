@@ -327,3 +327,16 @@ def test_count_entries_filters_by_currency_and_typed_status(tmp_path):
     assert ledger.count_entries(currency=CURRENCY) == 1
     assert ledger.count_entries(status=LedgerStatus.SETTLED) == 1
     assert ledger.count_entries(currency=CURRENCY, status=LedgerStatus.FAILED) == 0
+
+
+def test_find_by_settlement_id_returns_all_matching_ledger_rows(tmp_path):
+    ledger = Ledger(tmp_path / "ledger.sqlite3")
+    for request_id in ("batch-one", "batch-two"):
+        ledger.reserve(request_id, Decimal("1"), currency=CURRENCY)
+        ledger.commit(request_id, settlement_id="shared-batch-tx")
+    ledger.reserve("different", Decimal("1"), currency=CURRENCY)
+    assert {row.request_id for row in ledger.find_by_settlement_id("shared-batch-tx")} == {
+        "batch-one",
+        "batch-two",
+    }
+    assert ledger.find_by_settlement_id("missing") == []
