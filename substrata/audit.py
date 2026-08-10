@@ -303,6 +303,27 @@ class AuditLog:
         )
         return hashlib.sha256(f"{previous_hash}\n{canonical}".encode("utf-8")).hexdigest()
 
+    def count_events(self, *, request_id: str | None = None, event_type: str | None = None) -> int:
+        """Count retained events matching optional request and type filters."""
+        clauses: list[str] = []
+        parameters: list[Any] = []
+        if request_id is not None:
+            clauses.append("request_id = ?")
+            parameters.append(self._required(request_id, "request_id"))
+        if event_type is not None:
+            clauses.append("event_type = ?")
+            parameters.append(self._required(event_type, "event_type"))
+        where = " WHERE " + " AND ".join(clauses) if clauses else ""
+        with self._lock:
+            connection = self._connection
+            if connection is None:
+                raise RuntimeError("AuditLog is closed.")
+            return int(
+                connection.execute(
+                    f"SELECT COUNT(*) FROM audit_events{where}", parameters
+                ).fetchone()[0]
+            )
+
     def export_jsonl(self, *, request_id: str | None = None, event_type: str | None = None) -> str:
         return "".join(
             json.dumps(event, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n"

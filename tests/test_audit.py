@@ -134,3 +134,14 @@ def test_audit_chain_serializes_concurrent_writers_across_connections(tmp_path):
     assert logs[0].verify_chain()
     for audit in logs:
         audit.close()
+
+
+def test_audit_count_uses_request_and_type_filters(tmp_path):
+    audit = AuditLog(tmp_path / "audit.sqlite3")
+    audit.append("payment.started", request_id="one")
+    audit.append("payment.settled", request_id="one")
+    audit.append("payment.started", request_id="two")
+    assert audit.count_events() == 3
+    assert audit.count_events(request_id="one") == 2
+    assert audit.count_events(event_type="payment.started") == 2
+    assert audit.count_events(request_id="one", event_type="payment.settled") == 1
