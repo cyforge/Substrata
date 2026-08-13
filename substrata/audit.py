@@ -51,6 +51,7 @@ class AuditLog:
     def __init__(self, path: str | Path = "substrata.sqlite3") -> None:
         self.path = str(path)
         self._lock = threading.RLock()
+        self._stream_active = False
         self._connection: sqlite3.Connection | None = sqlite3.connect(
             self.path, timeout=30, isolation_level=None, check_same_thread=False
         )
@@ -73,6 +74,8 @@ class AuditLog:
 
     def close(self) -> None:
         with self._lock:
+            if self._stream_active:
+                raise RuntimeError("Cannot close audit log while iterating a snapshot.")
             if self._connection is not None:
                 self._connection.close()
                 self._connection = None
@@ -106,6 +109,8 @@ class AuditLog:
             connection = self._connection
             if connection is None:
                 raise RuntimeError("AuditLog is closed.")
+            if self._stream_active:
+                raise RuntimeError("Cannot append while iterating an audit snapshot.")
             connection.execute("BEGIN IMMEDIATE")
             try:
                 previous = connection.execute(
@@ -169,6 +174,7 @@ class AuditLog:
             if connection is None:
                 raise RuntimeError("AuditLog is closed.")
             connection.execute("BEGIN")
+            self._stream_active = True
             try:
                 offset = 0
                 while True:
@@ -194,10 +200,10 @@ class AuditLog:
                         break
                     offset += len(rows)
                 connection.execute("COMMIT")
-            except Exception:
+            finally:
                 if connection.in_transaction:
                     connection.execute("ROLLBACK")
-                raise
+                self._stream_active = False
 
     def list_events(
         self,

@@ -368,3 +368,29 @@ def test_ledger_export_streams_over_ten_thousand_rows(tmp_path):
     ledger = Ledger(path)
     assert len(ledger.export_jsonl(page_size=500).splitlines()) == 10001
     ledger.close()
+
+
+def test_closing_partial_iterator_releases_snapshot_transaction(tmp_path):
+    ledger = Ledger(tmp_path / "ledger.sqlite3")
+    ledger.reserve("first", Decimal("1"), currency=CURRENCY)
+    ledger.reserve("second", Decimal("1"), currency=CURRENCY)
+    iterator = ledger.iter_entries(page_size=1)
+    assert next(iterator).request_id == "first"
+    with pytest.raises(RuntimeError, match="iterating a snapshot"):
+        ledger.reserve("blocked", Decimal("1"), currency=CURRENCY)
+    iterator.close()
+    assert (
+        ledger.reserve("after-close", Decimal("1"), currency=CURRENCY).status
+        is LedgerStatus.PENDING
+    )
+
+
+def test_close_rejected_until_snapshot_iterator_is_closed(tmp_path):
+    ledger = Ledger(tmp_path / "ledger.sqlite3")
+    ledger.reserve("entry", Decimal("1"), currency=CURRENCY)
+    iterator = ledger.iter_entries()
+    next(iterator)
+    with pytest.raises(RuntimeError, match="iterating a snapshot"):
+        ledger.close()
+    iterator.close()
+    ledger.close()

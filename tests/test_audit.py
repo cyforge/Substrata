@@ -154,3 +154,30 @@ def test_audit_query_and_export_include_chain_proof(tmp_path):
     assert len(event["event_hash"]) == 64
     assert event["previous_hash"] == "0" * 64
     assert event["event_hash"] in audit.export_jsonl()
+
+
+def test_closing_partial_audit_iterator_releases_snapshot_transaction(tmp_path):
+    import pytest
+
+    audit = AuditLog(tmp_path / "audit.sqlite3")
+    audit.append("first")
+    audit.append("second")
+    iterator = audit.iter_events(page_size=1)
+    assert next(iterator)["event_type"] == "first"
+    with pytest.raises(RuntimeError, match="iterating an audit snapshot"):
+        audit.append("blocked")
+    iterator.close()
+    assert audit.append("after-close") == 3
+
+
+def test_audit_close_rejected_until_snapshot_iterator_is_closed(tmp_path):
+    import pytest
+
+    audit = AuditLog(tmp_path / "audit.sqlite3")
+    audit.append("event")
+    iterator = audit.iter_events()
+    next(iterator)
+    with pytest.raises(RuntimeError, match="iterating a snapshot"):
+        audit.close()
+    iterator.close()
+    audit.close()

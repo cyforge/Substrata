@@ -124,6 +124,7 @@ class Ledger:
     def __init__(self, path: str | Path = "substrata.sqlite3") -> None:
         self.path = str(path)
         self._lock = threading.RLock()
+        self._stream_active = False
         try:
             self._connection = sqlite3.connect(
                 self.path,
@@ -177,6 +178,8 @@ class Ledger:
 
     def close(self) -> None:
         with self._lock:
+            if self._stream_active:
+                raise RuntimeError("Cannot close ledger while iterating a snapshot.")
             if self._connection is not None:
                 self._connection.close()
                 self._connection = None
@@ -192,6 +195,11 @@ class Ledger:
         if self._connection is None:
             raise RuntimeError("Ledger is closed.")
         return self._connection
+
+    def _begin_write(self, connection: sqlite3.Connection) -> None:
+        if self._stream_active:
+            raise RuntimeError("Cannot mutate ledger while iterating a snapshot.")
+        connection.execute("BEGIN IMMEDIATE")
 
     def reserve(
         self,
@@ -241,7 +249,7 @@ class Ledger:
         now = _now()
         with self._lock:
             connection = self._conn()
-            connection.execute("BEGIN IMMEDIATE")
+            self._begin_write(connection)
             try:
                 existing = connection.execute(
                     "SELECT * FROM ledger_entries WHERE request_id = ?", (request_id,)
@@ -339,7 +347,7 @@ class Ledger:
         request_id = self._required_text(request_id, "request_id")
         with self._lock:
             connection = self._conn()
-            connection.execute("BEGIN IMMEDIATE")
+            self._begin_write(connection)
             try:
                 row = connection.execute(
                     "SELECT * FROM ledger_entries WHERE request_id = ?", (request_id,)
@@ -485,6 +493,7 @@ class Ledger:
         with self._lock:
             connection = self._conn()
             connection.execute("BEGIN")
+            self._stream_active = True
             try:
                 offset = 0
                 while True:
@@ -499,10 +508,10 @@ class Ledger:
                         break
                     offset += len(rows)
                 connection.execute("COMMIT")
-            except Exception:
+            finally:
                 if connection.in_transaction:
                     connection.execute("ROLLBACK")
-                raise
+                self._stream_active = False
 
     def list_entries(
         self,
