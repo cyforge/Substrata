@@ -145,3 +145,12 @@ def test_audit_count_uses_request_and_type_filters(tmp_path):
     assert audit.count_events(request_id="one") == 2
     assert audit.count_events(event_type="payment.started") == 2
     assert audit.count_events(request_id="one", event_type="payment.settled") == 1
+
+
+def test_audit_query_and_export_include_chain_proof(tmp_path):
+    audit = AuditLog(tmp_path / "audit.sqlite3")
+    audit.append("payment", data={"amount": "3"})
+    event = audit.list_events()[0]
+    assert len(event["event_hash"]) == 64
+    assert event["previous_hash"] == "0" * 64
+    assert event["event_hash"] in audit.export_jsonl()

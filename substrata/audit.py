@@ -162,6 +162,9 @@ class AuditLog:
             clauses.append("event_type = ?")
             parameters.append(self._required(event_type, "event_type"))
         where = " WHERE " + " AND ".join(clauses) if clauses else ""
+        where_events = where.replace("request_id", "e.request_id").replace(
+            "event_type", "e.event_type"
+        )
         with self._lock:
             connection = self._connection
             if connection is None:
@@ -171,8 +174,11 @@ class AuditLog:
                 offset = 0
                 while True:
                     rows = connection.execute(
-                        "SELECT event_id, event_type, request_id, created_at, data "
-                        f"FROM audit_events{where} ORDER BY event_id LIMIT ? OFFSET ?",
+                        "SELECT e.event_id, e.event_type, e.request_id, e.created_at, e.data, "
+                        "c.previous_hash, c.event_hash "
+                        "FROM audit_events AS e LEFT JOIN audit_chain AS c USING(event_id) "
+                        f"{where_events} "
+                        "ORDER BY e.event_id LIMIT ? OFFSET ?",
                         [*parameters, page_size, offset],
                     ).fetchall()
                     for row in rows:
@@ -182,6 +188,8 @@ class AuditLog:
                             "request_id": row[2],
                             "created_at": row[3],
                             "data": json.loads(row[4]),
+                            "previous_hash": row[5],
+                            "event_hash": row[6],
                         }
                     if len(rows) < page_size:
                         break
@@ -213,15 +221,20 @@ class AuditLog:
             clauses.append("event_type = ?")
             parameters.append(self._required(event_type, "event_type"))
         where = " WHERE " + " AND ".join(clauses) if clauses else ""
+        where_events = where.replace("request_id", "e.request_id").replace(
+            "event_type", "e.event_type"
+        )
         parameters.extend((limit, offset))
         with self._lock:
             connection = self._connection
             if connection is None:
                 raise RuntimeError("AuditLog is closed.")
             rows = connection.execute(
-                "SELECT event_id, event_type, request_id, created_at, data "
-                f"FROM audit_events{where} "
-                "ORDER BY event_id LIMIT ? OFFSET ?",
+                "SELECT e.event_id, e.event_type, e.request_id, e.created_at, e.data, "
+                "c.previous_hash, c.event_hash FROM audit_events AS e "
+                "LEFT JOIN audit_chain AS c USING(event_id) "
+                f"{where_events} "
+                "ORDER BY e.event_id LIMIT ? OFFSET ?",
                 parameters,
             ).fetchall()
         return [
@@ -231,6 +244,8 @@ class AuditLog:
                 "request_id": row[2],
                 "created_at": row[3],
                 "data": json.loads(row[4]),
+                "previous_hash": row[5],
+                "event_hash": row[6],
             }
             for row in rows
         ]
