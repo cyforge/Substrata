@@ -339,10 +339,18 @@ class AuditLog:
                 ).fetchone()[0]
             )
 
-    def export_jsonl(self, *, request_id: str | None = None, event_type: str | None = None) -> str:
+    def export_jsonl(
+        self,
+        *,
+        request_id: str | None = None,
+        event_type: str | None = None,
+        page_size: int = 1000,
+    ) -> str:
         return "".join(
             json.dumps(event, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n"
-            for event in self.iter_events(request_id=request_id, event_type=event_type)
+            for event in self.iter_events(
+                request_id=request_id, event_type=event_type, page_size=page_size
+            )
         )
 
     @staticmethod

@@ -340,3 +340,31 @@ def test_find_by_settlement_id_returns_all_matching_ledger_rows(tmp_path):
         "batch-two",
     }
     assert ledger.find_by_settlement_id("missing") == []
+
+
+def test_ledger_export_streams_over_ten_thousand_rows(tmp_path):
+    import sqlite3
+
+    path = tmp_path / "large-ledger.sqlite3"
+    ledger = Ledger(path)
+    ledger.close()
+    connection = sqlite3.connect(path)
+    connection.executemany(
+        "INSERT INTO ledger_entries(request_id, amount_units, currency, status, created_at, "
+        "updated_at, metadata) VALUES (?, ?, ?, 'pending', ?, ?, '{}')",
+        (
+            (
+                f"request-{index:05d}",
+                1,
+                CURRENCY,
+                f"2026-01-01T00:00:{index % 60:02d}+00:00",
+                f"2026-01-01T00:00:{index % 60:02d}+00:00",
+            )
+            for index in range(10001)
+        ),
+    )
+    connection.commit()
+    connection.close()
+    ledger = Ledger(path)
+    assert len(ledger.export_jsonl(page_size=500).splitlines()) == 10001
+    ledger.close()

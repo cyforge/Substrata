@@ -100,7 +100,7 @@ def test_export_includes_more_than_ten_thousand_events(tmp_path):
     connection.commit()
     connection.close()
     audit = AuditLog(path)
-    assert len(audit.export_jsonl().splitlines()) == 10001
+    assert len(audit.export_jsonl(page_size=500).splitlines()) == 10001
     audit.close()
 
 

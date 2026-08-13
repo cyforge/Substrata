@@ -585,8 +585,14 @@ class Ledger:
             )
         return int(result[0])
 
-    def export_jsonl(self, *, currency: str | None = None, status: str | None = None) -> str:
-        entries = self.iter_entries(currency=currency, status=status)
+    def export_jsonl(
+        self,
+        *,
+        currency: str | None = None,
+        status: str | LedgerStatus | None = None,
+        page_size: int = 1000,
+    ) -> str:
+        entries = self.iter_entries(currency=currency, status=status, page_size=page_size)
         return "".join(
             json.dumps(
                 {
