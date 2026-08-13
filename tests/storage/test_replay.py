@@ -56,3 +56,17 @@ def test_replay_store_context_manager_closes_and_rejects_reentry(tmp_path):
             pass
     with pytest.raises(RuntimeError, match="closed"):
         store.claim("stellar:testnet", "another-proof")
+
+
+def _claim_from_process(path: str) -> bool:
+    with ReplayStore(path) as store:
+        return store.claim("stellar:testnet", "globally-unique-proof")
+
+
+def test_proof_claim_has_one_winner_across_processes(tmp_path):
+    from concurrent.futures import ProcessPoolExecutor
+
+    path = str(tmp_path / "shared-claims.sqlite3")
+    with ProcessPoolExecutor(max_workers=4) as executor:
+        results = list(executor.map(_claim_from_process, [path] * 8))
+    assert sum(results) == 1

@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ..errors import ValidationError
+from ._sqlite import configure_connection
 from .ledger import _now
 
 
@@ -28,9 +29,7 @@ class ReplayStore:
         self._connection: sqlite3.Connection | None = sqlite3.connect(
             self.path, timeout=30, isolation_level=None, check_same_thread=False
         )
-        self._connection.execute("PRAGMA busy_timeout = 30000")
-        if self.path != ":memory:":
-            self._connection.execute("PRAGMA journal_mode = WAL")
+        configure_connection(self._connection, self.path)
         self._connection.execute(
             "CREATE TABLE IF NOT EXISTS replay_claims ("
             "scope TEXT NOT NULL, proof_id TEXT NOT NULL, digest TEXT, claimed_at TEXT NOT NULL, "

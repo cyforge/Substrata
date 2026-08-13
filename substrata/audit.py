@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from .errors import ValidationError
+from .storage._sqlite import configure_connection
 from .storage.ledger import _now
 
 _SENSITIVE_PARTS = (
@@ -53,9 +54,7 @@ class AuditLog:
         self._connection: sqlite3.Connection | None = sqlite3.connect(
             self.path, timeout=30, isolation_level=None, check_same_thread=False
         )
-        self._connection.execute("PRAGMA busy_timeout = 30000")
-        if self.path != ":memory:":
-            self._connection.execute("PRAGMA journal_mode = WAL")
+        configure_connection(self._connection, self.path)
         self._connection.execute(
             "CREATE TABLE IF NOT EXISTS audit_events ("
             "event_id INTEGER PRIMARY KEY AUTOINCREMENT, event_type TEXT NOT NULL, "

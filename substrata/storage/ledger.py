@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from ..errors import ValidationError
+from ._sqlite import configure_connection
 
 _SCALE = 7
 _FACTOR = 10**_SCALE
@@ -131,9 +132,7 @@ class Ledger:
                 check_same_thread=False,
             )
             self._connection.row_factory = sqlite3.Row
-            self._connection.execute("PRAGMA busy_timeout = 30000")
-            if self.path != ":memory:":
-                self._connection.execute("PRAGMA journal_mode = WAL")
+            configure_connection(self._connection, self.path)
             self._connection.execute("PRAGMA foreign_keys = ON")
             self._connection.executescript(
                 """
