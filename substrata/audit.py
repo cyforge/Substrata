@@ -264,6 +264,11 @@ class AuditLog:
             connection = self._connection
             if connection is None:
                 raise RuntimeError("AuditLog is closed.")
+            event_count, chain_count = connection.execute(
+                "SELECT (SELECT COUNT(*) FROM audit_events), (SELECT COUNT(*) FROM audit_chain)"
+            ).fetchone()
+            if event_count != chain_count:
+                return False
             rows = connection.execute(
                 "SELECT e.event_id, e.event_type, e.request_id, e.created_at, e.data, "
                 "c.previous_hash, c.event_hash FROM audit_events AS e "

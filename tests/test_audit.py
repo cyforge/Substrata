@@ -197,3 +197,20 @@ def test_audit_close_rejected_until_snapshot_iterator_is_closed(tmp_path):
         audit.close()
     iterator.close()
     audit.close()
+
+
+def test_audit_chain_detects_deleted_tail_events_and_orphan_hashes(tmp_path):
+    import sqlite3
+
+    path = tmp_path / "audit.sqlite3"
+    audit = AuditLog(path)
+    audit.append("first")
+    audit.append("tail")
+    audit.close()
+    connection = sqlite3.connect(path)
+    connection.execute("DELETE FROM audit_events WHERE event_id = 2")
+    connection.commit()
+    connection.close()
+    audit = AuditLog(path)
+    assert not audit.verify_chain()
+    audit.close()
