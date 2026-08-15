@@ -394,3 +394,10 @@ def test_close_rejected_until_snapshot_iterator_is_closed(tmp_path):
         ledger.close()
     iterator.close()
     ledger.close()
+
+
+def test_file_ledger_uses_durable_wal_and_full_sync(tmp_path):
+    ledger = Ledger(tmp_path / "durable.sqlite3")
+    assert ledger._conn().execute("PRAGMA journal_mode").fetchone()[0] == "wal"
+    assert ledger._conn().execute("PRAGMA synchronous").fetchone()[0] == 2
+    ledger.close()

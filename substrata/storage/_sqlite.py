@@ -18,6 +18,7 @@ def configure_connection(connection: sqlite3.Connection, path: str) -> None:
     while True:
         try:
             connection.execute("PRAGMA journal_mode = WAL")
+            connection.execute("PRAGMA synchronous = FULL")
             return
         except sqlite3.OperationalError as exc:
             if "locked" not in str(exc).lower() or time.monotonic() >= deadline:
