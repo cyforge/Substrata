@@ -427,3 +427,21 @@ def test_request_fingerprint_is_stored_as_digest(tmp_path):
         .fetchone()[0]
     )
     assert stored == expected
+
+
+def test_status_totals_include_all_ledger_lifecycle_buckets(tmp_path):
+    ledger = Ledger(tmp_path / "ledger.sqlite3")
+    ledger.reserve("pending", Decimal("1"), currency=CURRENCY)
+    ledger.reserve("uncertain", Decimal("2"), currency=CURRENCY)
+    ledger.mark_uncertain("uncertain", reason="provider timeout")
+    ledger.reserve("settled", Decimal("3"), currency=CURRENCY)
+    ledger.commit("settled")
+    ledger.reserve("failed", Decimal("4"), currency=CURRENCY)
+    ledger.release("failed", reason="verification rejected")
+    totals = ledger.status_totals(CURRENCY)
+    assert totals == {
+        LedgerStatus.PENDING: Decimal("1.0000000"),
+        LedgerStatus.UNCERTAIN: Decimal("2.0000000"),
+        LedgerStatus.SETTLED: Decimal("3.0000000"),
+        LedgerStatus.FAILED: Decimal("4.0000000"),
+    }

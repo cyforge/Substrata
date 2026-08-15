@@ -452,6 +452,26 @@ class Ledger:
             raise ValidationError("Currency total exceeds supported accounting range.")
         return _amount(units)
 
+    def status_totals(self, currency: str) -> dict[LedgerStatus, Decimal]:
+        """Return exact recorded amount totals grouped by lifecycle status."""
+        currency = self._required_text(currency, "currency")
+        grouped = {status: 0 for status in LedgerStatus}
+        with self._lock:
+            rows = (
+                self._conn()
+                .execute(
+                    "SELECT status, amount_units FROM ledger_entries WHERE currency = ?",
+                    (currency,),
+                )
+                .fetchall()
+            )
+        for status_value, units in rows:
+            status = LedgerStatus(status_value)
+            grouped[status] += units
+            if grouped[status] > 2**63 - 1:
+                raise ValidationError("Currency total exceeds supported accounting range.")
+        return {status: _amount(units) for status, units in grouped.items()}
+
     def spent_today(
         self,
         currency: str,
