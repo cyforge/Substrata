@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 import threading
@@ -245,6 +246,7 @@ class Ledger:
         )
         if request_fingerprint is not None:
             request_fingerprint = self._required_text(request_fingerprint, "request_fingerprint")
+            request_fingerprint = hashlib.sha256(request_fingerprint.encode("utf-8")).hexdigest()
         metadata_json = _metadata(metadata)
         now = _now()
         with self._lock:

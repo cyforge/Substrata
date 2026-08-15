@@ -401,3 +401,29 @@ def test_file_ledger_uses_durable_wal_and_full_sync(tmp_path):
     assert ledger._conn().execute("PRAGMA journal_mode").fetchone()[0] == "wal"
     assert ledger._conn().execute("PRAGMA synchronous").fetchone()[0] == 2
     ledger.close()
+
+
+def test_request_fingerprint_is_stored_as_digest(tmp_path):
+    import hashlib
+
+    path = tmp_path / "ledger.sqlite3"
+    ledger = Ledger(path)
+    original = "recipient:GABC123"
+    entry = ledger.reserve(
+        "fingerprint",
+        Decimal("1"),
+        currency=CURRENCY,
+        request_fingerprint=original,
+    )
+    expected = hashlib.sha256(original.encode("utf-8")).hexdigest()
+    assert entry.request_fingerprint == expected
+    assert original not in ledger.export_jsonl()
+    stored = (
+        ledger._conn()
+        .execute(
+            "SELECT request_fingerprint FROM ledger_entries WHERE request_id = ?",
+            ("fingerprint",),
+        )
+        .fetchone()[0]
+    )
+    assert stored == expected
