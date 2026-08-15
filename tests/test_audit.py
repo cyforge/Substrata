@@ -14,6 +14,13 @@ def test_audit_persists_redacted_events_and_exports(tmp_path):
             "api_key": "secret-value",
             "nested": {"access_token": "bearer", "payment-signature": "signed-proof"},
             "privateKey": "never-store",
+            "headers": {
+                "X-API-Key": "key-value",
+                "Payment-Signature": "proof-value",
+            },
+            "mnemonic_phrase": "word phrase",
+            "wallet_seed": "seed words",
+            "passphrase": "unlock-value",
         },
     )
     assert event_id == 1
@@ -26,11 +33,20 @@ def test_audit_persists_redacted_events_and_exports(tmp_path):
             "payment-signature": "[REDACTED]",
         },
         "privateKey": "[REDACTED]",
+        "headers": {
+            "X-API-Key": "[REDACTED]",
+            "Payment-Signature": "[REDACTED]",
+        },
+        "mnemonic_phrase": "[REDACTED]",
+        "wallet_seed": "[REDACTED]",
+        "passphrase": "[REDACTED]",
     }
     exported = audit.export_jsonl()
     assert "secret-value" not in exported
     assert "signed-proof" not in exported
     assert "never-store" not in exported
+    for secret in ("key-value", "proof-value", "word phrase", "seed words", "unlock-value"):
+        assert secret not in exported
     audit.close()
     reopened = AuditLog(path)
     assert reopened.list_events(event_type="payment.settled")[0]["event_id"] == 1
