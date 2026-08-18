@@ -445,3 +445,28 @@ def test_status_totals_include_all_ledger_lifecycle_buckets(tmp_path):
         LedgerStatus.SETTLED: Decimal("3.0000000"),
         LedgerStatus.FAILED: Decimal("4.0000000"),
     }
+
+
+def _reserve_from_process(path: str, index: int) -> bool:
+    try:
+        with Ledger(path) as ledger:
+            ledger.reserve(
+                f"process-payment-{index}",
+                Decimal("1"),
+                currency=CURRENCY,
+                limit=Decimal("3"),
+            )
+        return True
+    except ValidationError:
+        return False
+
+
+def test_budget_limit_prevents_process_level_overspend(tmp_path):
+    from concurrent.futures import ProcessPoolExecutor
+
+    path = str(tmp_path / "process-ledger.sqlite3")
+    with ProcessPoolExecutor(max_workers=4) as executor:
+        outcomes = list(executor.map(_reserve_from_process, [path] * 8, range(8)))
+    assert sum(outcomes) == 3
+    with Ledger(path) as ledger:
+        assert ledger.spent(CURRENCY) == Decimal("3.0000000")
