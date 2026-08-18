@@ -423,6 +423,8 @@ class Ledger:
         since: str | datetime | None = None,
     ) -> Decimal:
         currency = self._required_text(currency, "currency")
+        if not isinstance(include_pending, bool):
+            raise ValidationError("include_pending must be a boolean.")
         statuses = _ACTIVE_STATUSES if include_pending else ("uncertain", "settled")
         parameters: list[Any] = [currency, *statuses]
         status_placeholders = ",".join("?" for _ in statuses)

@@ -470,3 +470,10 @@ def test_budget_limit_prevents_process_level_overspend(tmp_path):
     assert sum(outcomes) == 3
     with Ledger(path) as ledger:
         assert ledger.spent(CURRENCY) == Decimal("3.0000000")
+
+
+def test_spend_query_requires_boolean_pending_selector(tmp_path):
+    ledger = Ledger(tmp_path / "ledger.sqlite3")
+    for value in ("false", 0, None):
+        with pytest.raises(ValidationError, match="include_pending"):
+            ledger.spent(CURRENCY, include_pending=value)
