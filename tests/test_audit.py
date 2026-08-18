@@ -214,3 +214,26 @@ def test_audit_chain_detects_deleted_tail_events_and_orphan_hashes(tmp_path):
     audit = AuditLog(path)
     assert not audit.verify_chain()
     audit.close()
+
+
+def test_audit_verification_reports_first_modified_event(tmp_path):
+    import sqlite3
+
+    path = tmp_path / "audit.sqlite3"
+    audit = AuditLog(path)
+    audit.append("first", data={"step": 1})
+    audit.append("second", data={"step": 2})
+    assert audit.inspect_chain().valid
+    audit.close()
+
+    connection = sqlite3.connect(path)
+    connection.execute("UPDATE audit_events SET data = ? WHERE event_id = 2", ('{"step":3}',))
+    connection.commit()
+    connection.close()
+    audit = AuditLog(path)
+    report = audit.inspect_chain()
+    assert not report.valid
+    assert report.checked_events == 1
+    assert report.first_invalid_event == 2
+    assert len(report.expected_hash or "") == 64
+    assert report.recorded_hash != report.expected_hash

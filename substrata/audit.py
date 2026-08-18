@@ -7,6 +7,7 @@ import json
 import sqlite3
 import threading
 from collections.abc import Iterator
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -46,6 +47,15 @@ def _redact(value: Any) -> Any:
     if isinstance(value, tuple):
         return [_redact(item) for item in value]
     return value
+
+
+@dataclass(frozen=True, slots=True)
+class AuditVerification:
+    valid: bool
+    checked_events: int
+    first_invalid_event: int | None = None
+    expected_hash: str | None = None
+    recorded_hash: str | None = None
 
 
 class AuditLog:
@@ -260,6 +270,10 @@ class AuditLog:
 
     def verify_chain(self) -> bool:
         """Return whether stored events match their append-only hash chain."""
+        return self.inspect_chain().valid
+
+    def inspect_chain(self) -> AuditVerification:
+        """Return the first chain mismatch and its expected and recorded hashes."""
         with self._lock:
             connection = self._connection
             if connection is None:
@@ -267,24 +281,47 @@ class AuditLog:
             event_count, chain_count = connection.execute(
                 "SELECT (SELECT COUNT(*) FROM audit_events), (SELECT COUNT(*) FROM audit_chain)"
             ).fetchone()
-            if event_count != chain_count:
-                return False
             rows = connection.execute(
                 "SELECT e.event_id, e.event_type, e.request_id, e.created_at, e.data, "
                 "c.previous_hash, c.event_hash FROM audit_events AS e "
                 "LEFT JOIN audit_chain AS c USING(event_id) ORDER BY e.event_id"
             ).fetchall()
+            orphan = connection.execute(
+                "SELECT event_id FROM audit_events AS e "
+                "WHERE NOT EXISTS (SELECT 1 FROM audit_chain AS c WHERE c.event_id = e.event_id) "
+                "UNION SELECT event_id FROM audit_chain AS c "
+                "WHERE NOT EXISTS (SELECT 1 FROM audit_events AS e WHERE e.event_id = c.event_id) "
+                "ORDER BY event_id LIMIT 1"
+            ).fetchone()
         expected_previous = "0" * 64
-        for row in rows:
+        for index, row in enumerate(rows):
             if row[5] != expected_previous:
-                return False
+                return AuditVerification(
+                    valid=False,
+                    checked_events=index,
+                    first_invalid_event=row[0],
+                    expected_hash=expected_previous,
+                    recorded_hash=row[5],
+                )
             expected_hash = self._hash_event(
                 expected_previous, row[0], row[1], row[2], row[3], row[4]
             )
             if row[6] != expected_hash:
-                return False
+                return AuditVerification(
+                    valid=False,
+                    checked_events=index,
+                    first_invalid_event=row[0],
+                    expected_hash=expected_hash,
+                    recorded_hash=row[6],
+                )
             expected_previous = expected_hash
-        return True
+        if orphan is not None or event_count != chain_count:
+            return AuditVerification(
+                valid=False,
+                checked_events=len(rows),
+                first_invalid_event=None if orphan is None else orphan[0],
+            )
+        return AuditVerification(valid=True, checked_events=len(rows))
 
     def _backfill_chain(self) -> None:
         """Create a baseline chain for audit rows written before chain support."""
