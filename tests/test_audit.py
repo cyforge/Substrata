@@ -237,3 +237,16 @@ def test_audit_verification_reports_first_modified_event(tmp_path):
     assert report.first_invalid_event == 2
     assert len(report.expected_hash or "") == 64
     assert report.recorded_hash != report.expected_hash
+
+
+def test_audit_context_rejects_reentering_closed_log(tmp_path):
+    import pytest
+
+    audit = AuditLog(tmp_path / "audit.sqlite3")
+    with audit as active:
+        assert active is audit
+        active.append("event")
+    audit.close()
+    with pytest.raises(RuntimeError, match="closed"):
+        with audit:
+            pass

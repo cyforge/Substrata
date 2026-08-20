@@ -94,6 +94,8 @@ class AuditLog:
                 self._connection = None
 
     def __enter__(self) -> "AuditLog":
+        if self._connection is None:
+            raise RuntimeError("AuditLog is closed.")
         return self
 
     def __exit__(self, exc_type: object, exc: object, traceback: object) -> None:
