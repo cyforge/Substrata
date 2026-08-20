@@ -546,3 +546,10 @@ def test_reservation_timestamp_and_daily_cutoff_share_transaction_clock(tmp_path
     assert (
         datetime.fromisoformat(entry.created_at).astimezone(UTC).date().isoformat() == "2026-02-01"
     )
+
+
+def test_ledger_entry_always_exposes_metadata_dictionary(tmp_path):
+    ledger = Ledger(tmp_path / "ledger.sqlite3")
+    entry = ledger.reserve("metadata", Decimal("1"), currency=CURRENCY)
+    assert entry.metadata == {}
+    assert isinstance(entry.metadata, dict)

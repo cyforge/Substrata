@@ -6,7 +6,7 @@ import hashlib
 import json
 import sqlite3
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 from enum import Enum
@@ -38,7 +38,7 @@ class LedgerEntry:
     updated_at: str
     settlement_id: str | None = None
     reason: str | None = None
-    metadata: dict[str, Any] | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
     request_fingerprint: str | None = None
 
 
