@@ -280,21 +280,31 @@ class AuditLog:
             connection = self._connection
             if connection is None:
                 raise RuntimeError("AuditLog is closed.")
-            event_count, chain_count = connection.execute(
-                "SELECT (SELECT COUNT(*) FROM audit_events), (SELECT COUNT(*) FROM audit_chain)"
-            ).fetchone()
-            rows = connection.execute(
-                "SELECT e.event_id, e.event_type, e.request_id, e.created_at, e.data, "
-                "c.previous_hash, c.event_hash FROM audit_events AS e "
-                "LEFT JOIN audit_chain AS c USING(event_id) ORDER BY e.event_id"
-            ).fetchall()
-            orphan = connection.execute(
-                "SELECT event_id FROM audit_events AS e "
-                "WHERE NOT EXISTS (SELECT 1 FROM audit_chain AS c WHERE c.event_id = e.event_id) "
-                "UNION SELECT event_id FROM audit_chain AS c "
-                "WHERE NOT EXISTS (SELECT 1 FROM audit_events AS e WHERE e.event_id = c.event_id) "
-                "ORDER BY event_id LIMIT 1"
-            ).fetchone()
+            if self._stream_active:
+                raise RuntimeError("Cannot verify audit log while iterating a snapshot.")
+            connection.execute("BEGIN")
+            try:
+                event_count, chain_count = connection.execute(
+                    "SELECT (SELECT COUNT(*) FROM audit_events), (SELECT COUNT(*) FROM audit_chain)"
+                ).fetchone()
+                rows = connection.execute(
+                    "SELECT e.event_id, e.event_type, e.request_id, e.created_at, e.data, "
+                    "c.previous_hash, c.event_hash FROM audit_events AS e "
+                    "LEFT JOIN audit_chain AS c USING(event_id) ORDER BY e.event_id"
+                ).fetchall()
+                orphan = connection.execute(
+                    "SELECT event_id FROM audit_events AS e "
+                    "WHERE NOT EXISTS (SELECT 1 FROM audit_chain AS c "
+                    "WHERE c.event_id = e.event_id) "
+                    "UNION SELECT event_id FROM audit_chain AS c "
+                    "WHERE NOT EXISTS (SELECT 1 FROM audit_events AS e "
+                    "WHERE e.event_id = c.event_id) "
+                    "ORDER BY event_id LIMIT 1"
+                ).fetchone()
+                connection.execute("COMMIT")
+            finally:
+                if connection.in_transaction:
+                    connection.execute("ROLLBACK")
         expected_previous = "0" * 64
         for index, row in enumerate(rows):
             if row[5] != expected_previous:
@@ -305,9 +315,17 @@ class AuditLog:
                     expected_hash=expected_previous,
                     recorded_hash=row[5],
                 )
-            expected_hash = self._hash_event(
-                expected_previous, row[0], row[1], row[2], row[3], row[4]
-            )
+            try:
+                expected_hash = self._hash_event(
+                    expected_previous, row[0], row[1], row[2], row[3], row[4]
+                )
+            except (TypeError, ValueError, UnicodeError):
+                return AuditVerification(
+                    valid=False,
+                    checked_events=index,
+                    first_invalid_event=row[0],
+                    recorded_hash=row[6],
+                )
             if row[6] != expected_hash:
                 return AuditVerification(
                     valid=False,

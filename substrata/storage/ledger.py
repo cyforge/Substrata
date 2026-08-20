@@ -7,7 +7,7 @@ import json
 import sqlite3
 import threading
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, time
+from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 from enum import Enum
 from pathlib import Path
@@ -91,6 +91,21 @@ def _decimal_units(value: Decimal, field: str, *, positive: bool = True) -> int:
 def _amount(units: int) -> Decimal:
     digits = tuple(int(character) for character in str(abs(units)))
     return Decimal((1 if units < 0 else 0, digits, -_SCALE))
+
+
+def _utc_datetime(value: str | datetime, field: str) -> datetime:
+    if isinstance(value, datetime):
+        parsed = value
+    elif isinstance(value, str):
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise ValidationError(f"{field} must be an ISO-8601 datetime.") from exc
+    else:
+        raise ValidationError(f"{field} must be a timezone-aware datetime or ISO-8601 string.")
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ValidationError(f"{field} must include a timezone.")
+    return parsed.astimezone(UTC)
 
 
 def _metadata(value: dict[str, Any] | None) -> str:
@@ -248,11 +263,12 @@ class Ledger:
             request_fingerprint = self._required_text(request_fingerprint, "request_fingerprint")
             request_fingerprint = hashlib.sha256(request_fingerprint.encode("utf-8")).hexdigest()
         metadata_json = _metadata(metadata)
-        now = _now()
         with self._lock:
             connection = self._conn()
             self._begin_write(connection)
             try:
+                now = _now()
+                transaction_time = datetime.fromisoformat(now).astimezone(UTC)
                 existing = connection.execute(
                     "SELECT * FROM ledger_entries WHERE request_id = ?", (request_id,)
                 ).fetchone()
@@ -276,7 +292,9 @@ class Ledger:
                 if limit_units is not None and spent + units > limit_units:
                     raise ValidationError("Reservation exceeds currency budget.")
                 if daily_limit_units is not None:
-                    day_start = datetime.now(UTC).date().isoformat() + "T00:00:00+00:00"
+                    day_start = datetime.combine(
+                        transaction_time.date(), time.min, tzinfo=UTC
+                    ).isoformat(timespec="microseconds")
                     daily_spent = sum(
                         row["amount_units"] for row in spent_rows if row["created_at"] >= day_start
                     )
@@ -365,19 +383,34 @@ class Ledger:
                     ):
                         raise ValidationError("Settlement ID conflicts with recorded settlement.")
                     merged = json.loads(row["metadata"])
-                    if metadata:
-                        merged.update(json.loads(metadata))
+                    updates = json.loads(metadata) if metadata else {}
+                    if status == LedgerStatus.SETTLED and any(
+                        key in merged and merged[key] != value for key, value in updates.items()
+                    ):
+                        raise ValidationError(
+                            "Settlement metadata conflicts with recorded receipt."
+                        )
+                    if (
+                        status == LedgerStatus.FAILED
+                        and reason is not None
+                        and row["reason"] not in (None, reason)
+                    ):
+                        raise ValidationError("Failure reason conflicts with recorded result.")
+                    merged.update(updates)
                     merged_json = _metadata(merged)
                     if (
                         merged_json != row["metadata"]
                         or settlement_id is not None
                         and row["settlement_id"] is None
+                        or reason is not None
+                        and row["reason"] is None
                     ):
                         connection.execute(
                             "UPDATE ledger_entries SET updated_at = ?, "
-                            "settlement_id = COALESCE(?, settlement_id), metadata = ? "
+                            "settlement_id = COALESCE(?, settlement_id), "
+                            "reason = COALESCE(?, reason), metadata = ? "
                             "WHERE request_id = ?",
-                            (_now(), settlement_id, merged_json, request_id),
+                            (_now(), settlement_id, reason, merged_json, request_id),
                         )
                         row = connection.execute(
                             "SELECT * FROM ledger_entries WHERE request_id = ?", (request_id,)
@@ -421,6 +454,7 @@ class Ledger:
         *,
         include_pending: bool = True,
         since: str | datetime | None = None,
+        until: str | datetime | None = None,
     ) -> Decimal:
         currency = self._required_text(currency, "currency")
         if not isinstance(include_pending, bool):
@@ -432,21 +466,16 @@ class Ledger:
             "SELECT amount_units FROM ledger_entries WHERE currency = ? "
             f"AND status IN ({status_placeholders})"
         )
-        if since is not None:
-            if isinstance(since, datetime):
-                parsed_since = since
-            elif isinstance(since, str):
-                try:
-                    parsed_since = datetime.fromisoformat(since.replace("Z", "+00:00"))
-                except ValueError as exc:
-                    raise ValidationError("since must be an ISO-8601 datetime.") from exc
-            else:
-                raise ValidationError("since must be a timezone-aware datetime or ISO-8601 string.")
-            if parsed_since.tzinfo is None or parsed_since.utcoffset() is None:
-                raise ValidationError("since must include a timezone.")
-            since_text = parsed_since.astimezone(UTC).isoformat(timespec="microseconds")
+        since_time = None if since is None else _utc_datetime(since, "since")
+        until_time = None if until is None else _utc_datetime(until, "until")
+        if since_time is not None and until_time is not None and since_time >= until_time:
+            raise ValidationError("since must be earlier than until.")
+        if since_time is not None:
             query += " AND created_at >= ?"
-            parameters.append(since_text)
+            parameters.append(since_time.isoformat(timespec="microseconds"))
+        if until_time is not None:
+            query += " AND created_at < ?"
+            parameters.append(until_time.isoformat(timespec="microseconds"))
         with self._lock:
             rows = self._conn().execute(query, parameters).fetchall()
             units = sum(row[0] for row in rows)
@@ -486,7 +515,8 @@ class Ledger:
             raise ValidationError("today must be a calendar date.")
         utc_day = today or datetime.now(UTC).date()
         start = datetime.combine(utc_day, time.min, tzinfo=UTC)
-        return self.spent(currency, include_pending=include_pending, since=start)
+        end = datetime.combine(utc_day + timedelta(days=1), time.min, tzinfo=UTC)
+        return self.spent(currency, include_pending=include_pending, since=start, until=end)
 
     def iter_entries(
         self,

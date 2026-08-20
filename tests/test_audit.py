@@ -250,3 +250,21 @@ def test_audit_context_rejects_reentering_closed_log(tmp_path):
     with pytest.raises(RuntimeError, match="closed"):
         with audit:
             pass
+
+
+def test_audit_verification_fails_closed_on_malformed_event_json(tmp_path):
+    import sqlite3
+
+    path = tmp_path / "audit.sqlite3"
+    audit = AuditLog(path)
+    audit.append("event", data={"ok": True})
+    audit.close()
+    connection = sqlite3.connect(path)
+    connection.execute("UPDATE audit_events SET data = ? WHERE event_id = 1", ("{bad",))
+    connection.commit()
+    connection.close()
+    audit = AuditLog(path)
+    report = audit.inspect_chain()
+    assert not report.valid
+    assert report.first_invalid_event == 1
+    audit.close()

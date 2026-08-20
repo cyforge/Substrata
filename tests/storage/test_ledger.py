@@ -477,3 +477,72 @@ def test_spend_query_requires_boolean_pending_selector(tmp_path):
     for value in ("false", 0, None):
         with pytest.raises(ValidationError, match="include_pending"):
             ledger.spent(CURRENCY, include_pending=value)
+
+
+def test_terminal_reconciliation_rejects_conflicting_receipt_metadata(tmp_path):
+    ledger = Ledger(tmp_path / "ledger.sqlite3")
+    ledger.reserve("settlement", Decimal("1"), currency=CURRENCY)
+    ledger.commit("settlement", settlement_id="tx-1", metadata={"sequence": "10"})
+    with pytest.raises(ValidationError, match="metadata conflicts"):
+        ledger.commit("settlement", settlement_id="tx-1", metadata={"sequence": "11"})
+
+    ledger.reserve("failure", Decimal("1"), currency=CURRENCY)
+    ledger.release("failure", reason="provider rejected")
+    with pytest.raises(ValidationError, match="reason conflicts"):
+        ledger.release("failure", reason="network timeout")
+
+
+def test_spent_today_excludes_entries_after_requested_utc_day(tmp_path):
+    import sqlite3
+    from datetime import date
+
+    path = tmp_path / "bounded-ledger.sqlite3"
+    ledger = Ledger(path)
+    ledger.close()
+    connection = sqlite3.connect(path)
+    for request_id, timestamp in (
+        ("before", "2026-01-31T23:59:59.999999+00:00"),
+        ("day", "2026-02-01T12:00:00.000000+00:00"),
+        ("after", "2026-02-02T00:00:00.000000+00:00"),
+    ):
+        connection.execute(
+            "INSERT INTO ledger_entries(request_id, amount_units, currency, status, created_at, "
+            "updated_at, metadata) VALUES (?, ?, ?, 'settled', ?, ?, '{}')",
+            (request_id, 10_000_000, CURRENCY, timestamp, timestamp),
+        )
+    connection.commit()
+    connection.close()
+    ledger = Ledger(path)
+    assert ledger.spent_today(CURRENCY, today=date(2026, 2, 1)) == Decimal("1.0000000")
+    assert ledger.spent(
+        CURRENCY,
+        since="2026-02-01T00:00:00+00:00",
+        until="2026-02-02T00:00:00+00:00",
+    ) == Decimal("1.0000000")
+    with pytest.raises(ValidationError, match="earlier"):
+        ledger.spent(CURRENCY, since="2026-02-02T00:00:00Z", until="2026-02-01T00:00:00Z")
+
+
+def test_reservation_timestamp_and_daily_cutoff_share_transaction_clock(tmp_path, monkeypatch):
+    from datetime import UTC, datetime
+
+    from substrata.storage import ledger as ledger_module
+
+    ledger = Ledger(tmp_path / "ledger.sqlite3")
+    transaction_timestamp = "2026-02-01T00:00:01.000000+00:00"
+
+    def transaction_now():
+        assert ledger._conn().in_transaction
+        return transaction_timestamp
+
+    monkeypatch.setattr(ledger_module, "_now", transaction_now)
+    entry = ledger.reserve(
+        "after-midnight",
+        Decimal("1"),
+        currency=CURRENCY,
+        daily_limit=Decimal("1"),
+    )
+    assert entry.created_at == transaction_timestamp
+    assert (
+        datetime.fromisoformat(entry.created_at).astimezone(UTC).date().isoformat() == "2026-02-01"
+    )
