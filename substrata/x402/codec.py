@@ -68,10 +68,7 @@ def _validate_tree(value: object, depth: int = 0) -> JsonValue:
     raise ValidationError("value is not JSON-compatible")
 
 
-def decode_json(data: bytes | str, model_type: type[WireModel]) -> WireModel:
-    """Decode bounded UTF-8 JSON into one supported wire model."""
-    if model_type not in _MODEL_PARSERS:
-        raise ValidationError("unsupported x402 wire model")
+def _decode_value(data: bytes | str) -> JsonValue:
     if isinstance(data, str):
         try:
             encoded = data.encode("utf-8", errors="strict")
@@ -90,8 +87,22 @@ def decode_json(data: bytes | str, model_type: type[WireModel]) -> WireModel:
         raise
     except (UnicodeDecodeError, json.JSONDecodeError, RecursionError, ValueError) as exc:
         raise ValidationError("invalid JSON input") from exc
-    _validate_tree(parsed)
-    return _MODEL_PARSERS[model_type](parsed)
+    return _validate_tree(parsed)
+
+
+def decode_json_object(data: bytes | str) -> dict[str, JsonValue]:
+    """Decode bounded JSON and require a top-level object."""
+    parsed = _decode_value(data)
+    if not isinstance(parsed, dict):
+        raise ValidationError("JSON top level must be an object")
+    return parsed
+
+
+def decode_json(data: bytes | str, model_type: type[WireModel]) -> WireModel:
+    """Decode bounded UTF-8 JSON into one supported wire model."""
+    if model_type not in _MODEL_PARSERS:
+        raise ValidationError("unsupported x402 wire model")
+    return _MODEL_PARSERS[model_type](decode_json_object(data))
 
 
 def encode_json(
@@ -133,6 +144,7 @@ def decode_header(value: str, model_type: type[WireModel]) -> WireModel:
 
 __all__ = [
     "MAX_HEADER_CHARS",
+    "decode_json_object",
     "MAX_JSON_BYTES",
     "decode_header",
     "decode_json",
