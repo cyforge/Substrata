@@ -1,0 +1,438 @@
+"""Typed x402 v2 wire models."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from types import MappingProxyType
+from typing import Mapping, TypeAlias, cast
+from urllib.parse import urlsplit
+
+from substrata.errors import ValidationError
+
+JsonScalar: TypeAlias = None | bool | int | float | str
+JsonValue: TypeAlias = JsonScalar | list["JsonValue"] | dict[str, "JsonValue"]
+JsonValue: TypeAlias = JsonScalar | tuple["JsonValue", ...] | Mapping[str, "JsonValue"]
+JsonObject: TypeAlias = Mapping[str, JsonValue]
+
+
+def _object(value: object, name: str) -> JsonObject:
+    if not isinstance(value, Mapping) or any(not isinstance(key, str) for key in value):
+        raise ValidationError(f"{name} must be a JSON object")
+    return cast(JsonObject, value)
+
+
+def _freeze(value: object, name: str, depth: int = 0) -> JsonValue:
+    if depth > 64:
+        raise ValidationError(f"{name} exceeds nesting limit")
+    if value is None or type(value) in (bool, str):
+        return cast(JsonValue, value)
+    if type(value) is int:
+        if abs(value) > (1 << 63) - 1:
+            raise ValidationError(f"{name} contains oversized integer")
+        return value
+    if type(value) is float:
+        import math
+
+        if not math.isfinite(value):
+            raise ValidationError(f"{name} contains non-finite number")
+        return value
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze(item, name, depth + 1) for item in value)
+    if isinstance(value, Mapping):
+        if any(not isinstance(key, str) for key in value):
+            raise ValidationError(f"{name} keys must be strings")
+        return MappingProxyType(
+            {key: _freeze(item, name, depth + 1) for key, item in value.items()}
+        )
+    raise ValidationError(f"{name} must contain JSON values")
+
+
+def _freeze_object(value: object, name: str) -> JsonObject:
+    return cast(JsonObject, _freeze(_object(value, name), name))
+
+
+def _thaw(value: JsonValue) -> JsonValue:
+    if isinstance(value, Mapping):
+        return {key: _thaw(item) for key, item in value.items()}
+    if isinstance(value, tuple):
+        return [_thaw(item) for item in value]
+    return value
+
+
+def _http_url(value: str, name: str) -> None:
+    parts = urlsplit(value)
+    if len(value) > 2048 or parts.scheme not in ("http", "https") or not parts.hostname:
+        raise ValidationError(f"{name} must be an absolute HTTP(S) URL")
+
+
+def _string(value: object, name: str, *, nonempty: bool = True) -> str:
+    if not isinstance(value, str) or (nonempty and not value):
+        raise ValidationError(f"{name} must be a{' non-empty' if nonempty else ''} string")
+    return value
+
+
+def _version(value: object) -> int:
+    if type(value) is not int or value != 2:
+        raise ValidationError("x402Version must be integer 2")
+    return value
+
+
+def _optional_object(data: JsonObject, key: str) -> JsonObject | None:
+    value = data.get(key)
+    return None if value is None else _object(value, key)
+
+
+@dataclass(frozen=True, slots=True)
+class ResourceInfo:
+    url: str
+    description: str | None = None
+    mime_type: str | None = None
+    service_name: str | None = None
+    tags: tuple[str, ...] | None = None
+    icon_url: str | None = None
+
+    @classmethod
+    def from_dict(cls, value: object) -> ResourceInfo:
+        data = _object(value, "resource")
+        tags_value = data.get("tags")
+        tags = None
+        if tags_value is not None:
+            if not isinstance(tags_value, list):
+                raise ValidationError("resource.tags must be an array")
+            tags = tuple(_string(item, "resource.tags[]") for item in tags_value)
+        fields = {
+            "description": "resource.description",
+            "mimeType": "resource.mimeType",
+            "serviceName": "resource.serviceName",
+            "iconUrl": "resource.iconUrl",
+        }
+        optional: dict[str, str | None] = {}
+        for wire, label in fields.items():
+            raw = data.get(wire)
+            optional[
+                {
+                    "description": "description",
+                    "mimeType": "mime_type",
+                    "serviceName": "service_name",
+                    "iconUrl": "icon_url",
+                }[wire]
+            ] = None if raw is None else _string(raw, label)
+        return cls(url=_string(data.get("url"), "resource.url"), tags=tags, **optional)
+
+    def __post_init__(self) -> None:
+        _string(self.url, "resource.url")
+        _http_url(self.url, "resource.url")
+        for name in ("description", "mime_type", "service_name", "icon_url"):
+            value = getattr(self, name)
+            if value is not None:
+                _string(value, f"resource.{name}", nonempty=False)
+        if self.icon_url is not None:
+            _http_url(self.icon_url, "resource.iconUrl")
+        if self.tags is not None:
+            if not isinstance(self.tags, (tuple, list)):
+                raise ValidationError("resource.tags must be an array")
+            for tag in self.tags:
+                _string(tag, "resource.tags[]")
+
+    def to_dict(self) -> JsonObject:
+        data: JsonObject = {"url": self.url}
+        for key, value in (
+            ("description", self.description),
+            ("mimeType", self.mime_type),
+            ("serviceName", self.service_name),
+            ("iconUrl", self.icon_url),
+        ):
+            if value is not None:
+                data[key] = value
+        if self.tags is not None:
+            data["tags"] = list(self.tags)
+        return data
+
+
+@dataclass(frozen=True, slots=True)
+class PaymentRequirements:
+    scheme: str
+    network: str
+    amount: str
+    asset: str
+    pay_to: str
+    max_timeout_seconds: int
+    extra: JsonObject | None = None
+
+    def __post_init__(self) -> None:
+        for name in ("scheme", "network", "asset", "pay_to"):
+            _string(getattr(self, name), name)
+        if (
+            not isinstance(self.amount, str)
+            or not self.amount.isascii()
+            or not self.amount.isdigit()
+        ):
+            raise ValidationError("amount must be a digit string in atomic units")
+        if len(self.amount) > 78 or int(self.amount) > (1 << 256) - 1:
+            raise ValidationError("amount exceeds unsigned 256-bit range")
+        if int(self.amount) <= 0:
+            raise ValidationError("amount must be positive")
+        if (
+            type(self.max_timeout_seconds) is not int
+            or not 1 <= self.max_timeout_seconds <= 2_147_483_647
+        ):
+            raise ValidationError("maxTimeoutSeconds must be a positive 32-bit integer")
+        if self.extra is not None:
+            object.__setattr__(self, "extra", _freeze_object(self.extra, "extra"))
+
+    @classmethod
+    def from_dict(cls, value: object) -> PaymentRequirements:
+        data = _object(value, "payment requirements")
+        timeout = data.get("maxTimeoutSeconds")
+        if type(timeout) is not int:
+            raise ValidationError("maxTimeoutSeconds must be an integer")
+        extra = _optional_object(data, "extra")
+        return cls(
+            scheme=_string(data.get("scheme"), "scheme"),
+            network=_string(data.get("network"), "network"),
+            amount=_string(data.get("amount"), "amount"),
+            asset=_string(data.get("asset"), "asset"),
+            pay_to=_string(data.get("payTo"), "payTo"),
+            max_timeout_seconds=timeout,
+            extra=extra,
+        )
+
+    def to_dict(self) -> JsonObject:
+        data: JsonObject = {
+            "scheme": self.scheme,
+            "network": self.network,
+            "amount": self.amount,
+            "asset": self.asset,
+            "payTo": self.pay_to,
+            "maxTimeoutSeconds": self.max_timeout_seconds,
+        }
+        if self.extra is not None:
+            data["extra"] = cast(JsonObject, _thaw(cast(JsonValue, self.extra)))
+        return data
+
+
+@dataclass(frozen=True, slots=True)
+class PaymentRequired:
+    resource: ResourceInfo
+    accepts: tuple[PaymentRequirements, ...]
+    error: str | None = None
+    extensions: JsonObject = field(default_factory=dict)
+    x402_version: int = 2
+
+    def __post_init__(self) -> None:
+        _version(self.x402_version)
+        if not isinstance(self.resource, ResourceInfo):
+            raise ValidationError("resource must be ResourceInfo")
+        if (
+            not isinstance(self.accepts, tuple)
+            or not self.accepts
+            or any(not isinstance(item, PaymentRequirements) for item in self.accepts)
+        ):
+            raise ValidationError("accepts must contain at least one payment requirement")
+        object.__setattr__(self, "extensions", _freeze_object(self.extensions, "extensions"))
+        if self.error is not None:
+            _string(self.error, "error", nonempty=False)
+
+    @classmethod
+    def from_dict(cls, value: object) -> PaymentRequired:
+        data = _object(value, "payment required")
+        _version(data.get("x402Version"))
+        accepts = data.get("accepts")
+        if not isinstance(accepts, list):
+            raise ValidationError("accepts must be an array")
+        error = data.get("error")
+        return cls(
+            resource=ResourceInfo.from_dict(data.get("resource")),
+            accepts=tuple(PaymentRequirements.from_dict(item) for item in accepts),
+            error=None if error is None else _string(error, "error", nonempty=False),
+            extensions=_optional_object(data, "extensions") or {},
+        )
+
+    def to_dict(self) -> JsonObject:
+        data: JsonObject = {
+            "x402Version": self.x402_version,
+            "resource": self.resource.to_dict(),
+            "accepts": [item.to_dict() for item in self.accepts],
+        }
+        if self.error is not None:
+            data["error"] = self.error
+        if self.extensions:
+            data["extensions"] = cast(JsonObject, _thaw(cast(JsonValue, self.extensions)))
+        return data
+
+
+@dataclass(frozen=True, slots=True)
+class PaymentPayload:
+    accepted: PaymentRequirements
+    payload: JsonObject
+    resource: ResourceInfo | None = None
+    extensions: JsonObject = field(default_factory=dict)
+    x402_version: int = 2
+
+    def __post_init__(self) -> None:
+        _version(self.x402_version)
+        if not isinstance(self.accepted, PaymentRequirements):
+            raise ValidationError("accepted must be PaymentRequirements")
+        if self.resource is not None and not isinstance(self.resource, ResourceInfo):
+            raise ValidationError("resource must be ResourceInfo")
+        object.__setattr__(self, "payload", _freeze_object(self.payload, "payload"))
+        object.__setattr__(self, "extensions", _freeze_object(self.extensions, "extensions"))
+
+    @classmethod
+    def from_dict(cls, value: object) -> PaymentPayload:
+        data = _object(value, "payment payload")
+        _version(data.get("x402Version"))
+        return cls(
+            accepted=PaymentRequirements.from_dict(data.get("accepted")),
+            payload=_object(data.get("payload"), "payload"),
+            resource=None
+            if data.get("resource") is None
+            else ResourceInfo.from_dict(data["resource"]),
+            extensions=_optional_object(data, "extensions") or {},
+        )
+
+    def to_dict(self) -> JsonObject:
+        data: JsonObject = {
+            "x402Version": self.x402_version,
+            "accepted": self.accepted.to_dict(),
+            "payload": cast(JsonObject, _thaw(cast(JsonValue, self.payload))),
+        }
+        if self.resource is not None:
+            data["resource"] = self.resource.to_dict()
+        if self.extensions:
+            data["extensions"] = cast(JsonObject, _thaw(cast(JsonValue, self.extensions)))
+        return data
+
+
+@dataclass(frozen=True, slots=True)
+class VerifyResponse:
+    is_valid: bool
+    invalid_reason: str | None = None
+    invalid_message: str | None = None
+    payer: str | None = None
+    extensions: JsonObject = field(default_factory=dict)
+    extra: JsonObject = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if type(self.is_valid) is not bool:
+            raise ValidationError("isValid must be a boolean")
+        for name in ("invalid_reason", "invalid_message", "payer"):
+            value = getattr(self, name)
+            if value is not None:
+                _string(value, name, nonempty=False)
+        object.__setattr__(self, "extensions", _freeze_object(self.extensions, "extensions"))
+        object.__setattr__(self, "extra", _freeze_object(self.extra, "extra"))
+
+    @classmethod
+    def from_dict(cls, value: object) -> VerifyResponse:
+        data = _object(value, "verify response")
+        valid = data.get("isValid")
+        if type(valid) is not bool:
+            raise ValidationError("isValid must be a boolean")
+
+        def optional(key: str) -> str | None:
+            raw = data.get(key)
+            return None if raw is None else _string(raw, key, nonempty=False)
+
+        return cls(
+            valid,
+            optional("invalidReason"),
+            optional("invalidMessage"),
+            optional("payer"),
+            _optional_object(data, "extensions") or {},
+            _optional_object(data, "extra") or {},
+        )
+
+    def to_dict(self) -> JsonObject:
+        data: JsonObject = {"isValid": self.is_valid}
+        for wire, value in (
+            ("invalidReason", self.invalid_reason),
+            ("invalidMessage", self.invalid_message),
+            ("payer", self.payer),
+        ):
+            if value is not None:
+                data[wire] = value
+        if self.extensions:
+            data["extensions"] = cast(JsonObject, _thaw(cast(JsonValue, self.extensions)))
+        if self.extra:
+            data["extra"] = cast(JsonObject, _thaw(cast(JsonValue, self.extra)))
+        return data
+
+
+@dataclass(frozen=True, slots=True)
+class SettlementResponse:
+    success: bool
+    transaction: str
+    network: str
+    error_reason: str | None = None
+    error_message: str | None = None
+    payer: str | None = None
+    amount: str | None = None
+    extensions: JsonObject = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if type(self.success) is not bool:
+            raise ValidationError("success must be a boolean")
+        _string(self.transaction, "transaction", nonempty=False)
+        _string(self.network, "network")
+        for name in ("error_reason", "error_message", "payer"):
+            value = getattr(self, name)
+            if value is not None:
+                _string(value, name, nonempty=False)
+        if self.amount is not None:
+            _string(self.amount, "amount", nonempty=False)
+        if self.error_reason == "settlement_pending" and not self.transaction:
+            raise ValidationError("settlement_pending requires transaction hash")
+        object.__setattr__(self, "extensions", _freeze_object(self.extensions, "extensions"))
+
+    @classmethod
+    def from_dict(cls, value: object) -> SettlementResponse:
+        data = _object(value, "settlement response")
+        success = data.get("success")
+        if type(success) is not bool:
+            raise ValidationError("success must be a boolean")
+
+        def optional(key: str) -> str | None:
+            raw = data.get(key)
+            return None if raw is None else _string(raw, key, nonempty=False)
+
+        return cls(
+            success,
+            _string(data.get("transaction"), "transaction", nonempty=False),
+            _string(data.get("network"), "network"),
+            optional("errorReason"),
+            optional("errorMessage"),
+            optional("payer"),
+            optional("amount"),
+            _optional_object(data, "extensions") or {},
+        )
+
+    def to_dict(self) -> JsonObject:
+        data: JsonObject = {
+            "success": self.success,
+            "transaction": self.transaction,
+            "network": self.network,
+        }
+        for wire, value in (
+            ("errorReason", self.error_reason),
+            ("errorMessage", self.error_message),
+            ("payer", self.payer),
+            ("amount", self.amount),
+        ):
+            if value is not None:
+                data[wire] = value
+        if self.extensions:
+            data["extensions"] = cast(JsonObject, _thaw(cast(JsonValue, self.extensions)))
+        return data
+
+
+__all__ = [
+    "JsonObject",
+    "JsonValue",
+    "PaymentPayload",
+    "PaymentRequired",
+    "PaymentRequirements",
+    "ResourceInfo",
+    "SettlementResponse",
+    "VerifyResponse",
+]
