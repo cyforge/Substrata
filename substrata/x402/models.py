@@ -264,7 +264,7 @@ class PaymentRequired:
 @dataclass(frozen=True, slots=True)
 class PaymentPayload:
     accepted: PaymentRequirements
-    payload: JsonObject
+    payload: JsonObject = field(repr=False)
     resource: ResourceInfo | None = None
     extensions: JsonObject = field(default_factory=dict)
     x402_version: int = 2

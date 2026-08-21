@@ -7,6 +7,13 @@ from substrata.x402.codec import (
     encode_header,
     encode_json,
 )
+from substrata.x402.demo import (
+    DEMO_NETWORK,
+    DEMO_SCHEME,
+    LocalDemoFacilitator,
+    LocalDemoKey,
+    LocalDemoSigner,
+)
 from substrata.x402.facilitator import (
     Facilitator,
     FacilitatorError,
@@ -27,6 +34,11 @@ from substrata.x402.models import (
 )
 
 __all__ = [
+    "DEMO_NETWORK",
+    "DEMO_SCHEME",
+    "LocalDemoFacilitator",
+    "LocalDemoKey",
+    "LocalDemoSigner",
     "Facilitator",
     "FacilitatorError",
     "HTTPFacilitator",
