@@ -150,4 +150,44 @@ __all__ = [
     "decode_json",
     "encode_header",
     "encode_json",
+    "decode_payment_required_header",
+    "decode_payment_signature_header",
+    "decode_payment_response_header",
+    "encode_payment_required_header",
+    "encode_payment_signature_header",
+    "encode_payment_response_header",
 ]
+
+PAYMENT_REQUIRED_HEADER = "PAYMENT-REQUIRED"
+PAYMENT_SIGNATURE_HEADER = "PAYMENT-SIGNATURE"
+PAYMENT_RESPONSE_HEADER = "PAYMENT-RESPONSE"
+
+
+def encode_payment_required_header(value: PaymentRequired) -> str:
+    if not isinstance(value, PaymentRequired):
+        raise ValidationError("PAYMENT-REQUIRED needs PaymentRequired")
+    return encode_header(value)
+
+
+def decode_payment_required_header(value: str) -> PaymentRequired:
+    return decode_header(value, PaymentRequired)
+
+
+def encode_payment_signature_header(value: PaymentPayload) -> str:
+    if not isinstance(value, PaymentPayload):
+        raise ValidationError("PAYMENT-SIGNATURE needs PaymentPayload")
+    return encode_header(value)
+
+
+def decode_payment_signature_header(value: str) -> PaymentPayload:
+    return decode_header(value, PaymentPayload)
+
+
+def encode_payment_response_header(value: SettlementResponse) -> str:
+    if not isinstance(value, SettlementResponse):
+        raise ValidationError("PAYMENT-RESPONSE needs SettlementResponse")
+    return encode_header(value)
+
+
+def decode_payment_response_header(value: str) -> SettlementResponse:
+    return decode_header(value, SettlementResponse)

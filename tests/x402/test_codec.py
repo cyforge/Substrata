@@ -67,3 +67,40 @@ def test_depth_bounded_before_model_validation() -> None:
     nested = "[" * 66 + "0" + "]" * 66
     with pytest.raises(ValidationError):
         decode_json(nested, PaymentRequired)
+
+
+def test_named_http_headers_bind_expected_wire_models() -> None:
+    from substrata.x402.codec import (
+        PAYMENT_REQUIRED_HEADER,
+        PAYMENT_RESPONSE_HEADER,
+        PAYMENT_SIGNATURE_HEADER,
+        decode_payment_required_header,
+        decode_payment_response_header,
+        decode_payment_signature_header,
+        encode_payment_required_header,
+        encode_payment_response_header,
+        encode_payment_signature_header,
+    )
+    from substrata.x402.models import SettlementResponse
+
+    challenge = PaymentRequired.from_dict(
+        {
+            "x402Version": 2,
+            "resource": {"url": "https://example.test"},
+            "accepts": [REQ],
+        }
+    )
+    payment = PaymentPayload.from_dict(
+        {"x402Version": 2, "accepted": REQ, "payload": {"transaction": "xdr"}}
+    )
+    receipt = SettlementResponse(True, "hash", "stellar:testnet")
+    assert PAYMENT_REQUIRED_HEADER == "PAYMENT-REQUIRED"
+    assert PAYMENT_SIGNATURE_HEADER == "PAYMENT-SIGNATURE"
+    assert PAYMENT_RESPONSE_HEADER == "PAYMENT-RESPONSE"
+    assert decode_payment_required_header(encode_payment_required_header(challenge)) == challenge
+    assert decode_payment_signature_header(encode_payment_signature_header(payment)) == payment
+    assert decode_payment_response_header(encode_payment_response_header(receipt)) == receipt
+    with pytest.raises(ValidationError):
+        encode_payment_required_header(payment)  # type: ignore[arg-type]
+    with pytest.raises(ValidationError):
+        decode_payment_response_header(encode_payment_signature_header(payment))

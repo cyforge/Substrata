@@ -1,11 +1,20 @@
 """x402 v2 protocol models, codecs, and facilitator client."""
 
 from substrata.x402.codec import (
+    PAYMENT_REQUIRED_HEADER,
+    PAYMENT_RESPONSE_HEADER,
+    PAYMENT_SIGNATURE_HEADER,
     decode_header,
     decode_json,
     decode_json_object,
+    decode_payment_required_header,
+    decode_payment_response_header,
+    decode_payment_signature_header,
     encode_header,
     encode_json,
+    encode_payment_required_header,
+    encode_payment_response_header,
+    encode_payment_signature_header,
 )
 from substrata.x402.demo import (
     DEMO_NETWORK,
@@ -39,6 +48,9 @@ __all__ = [
     "LocalDemoFacilitator",
     "LocalDemoKey",
     "LocalDemoSigner",
+    "PAYMENT_REQUIRED_HEADER",
+    "PAYMENT_RESPONSE_HEADER",
+    "PAYMENT_SIGNATURE_HEADER",
     "Facilitator",
     "FacilitatorError",
     "HTTPFacilitator",
@@ -56,6 +68,12 @@ __all__ = [
     "decode_header",
     "decode_json",
     "decode_json_object",
+    "decode_payment_required_header",
+    "decode_payment_response_header",
+    "decode_payment_signature_header",
     "encode_header",
     "encode_json",
+    "encode_payment_required_header",
+    "encode_payment_response_header",
+    "encode_payment_signature_header",
 ]
