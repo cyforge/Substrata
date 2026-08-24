@@ -128,3 +128,53 @@ def test_direct_constructors_validate_domain_types_and_resource_urls() -> None:
         ResourceInfo("https://example.test", icon_url="file:///etc/passwd")
     with pytest.raises(ValidationError):
         PaymentRequirements("exact", "stellar:testnet", "1e5", "asset", "payee", 1)
+
+
+def test_mutable_inputs_are_snapshotted_and_dict_outputs_are_mutable_copies() -> None:
+    tags = ["one"]
+    resource = ResourceInfo("http://localhost:8080/data", tags=tags)  # type: ignore[arg-type]
+    tags.append("two")
+    assert resource.tags == ("one",)
+    requirements_data = {"name": "demo"}
+    requirements = PaymentRequirements(
+        "exact",
+        "stellar:testnet",
+        "1",
+        "token",
+        "recipient",
+        60,
+        extra=requirements_data,
+    )
+    requirements_data["name"] = "changed"
+    wire_copy = requirements.to_dict()
+    wire_copy["extra"]["name"] = "mutated"
+    assert requirements.extra["name"] == "demo"
+
+
+def test_url_validation_rejects_credentials_fragments_bad_ports_and_controls() -> None:
+    for url in (
+        "https://user:password@example.test/data",
+        "https://example.test:port/data",
+        "https://[::1/data",
+        "https://example.test/data#",
+        "https://example.test/data\nX-Injected: yes",
+    ):
+        with pytest.raises(ValidationError):
+            ResourceInfo(url)
+
+
+def test_caip2_and_unknown_wire_fields_are_validated() -> None:
+    for network in ("stellar", "ab:testnet", "Stellar:testnet", "stellar:"):
+        with pytest.raises(ValidationError):
+            PaymentRequirements("exact", network, "1", "asset", "payee", 60)
+    with pytest.raises(ValidationError, match="unsupported fields"):
+        PaymentRequirements.from_dict({**REQ, "ignored": True})
+
+
+def test_resource_spec_metadata_limits_are_enforced() -> None:
+    with pytest.raises(ValidationError):
+        ResourceInfo("https://example.test", service_name="x" * 33)
+    with pytest.raises(ValidationError):
+        ResourceInfo("https://example.test", tags=["x"] * 6)  # type: ignore[arg-type]
+    with pytest.raises(ValidationError):
+        ResourceInfo("https://example.test", tags=["bad\nvalue"])  # type: ignore[arg-type]
