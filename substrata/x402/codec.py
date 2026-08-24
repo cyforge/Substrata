@@ -11,6 +11,7 @@ from typing import TypeVar
 
 from substrata.errors import ValidationError
 from substrata.x402.models import (
+    JsonObject,
     JsonValue,
     PaymentPayload,
     PaymentRequired,
@@ -111,7 +112,14 @@ def encode_json(
     """Encode a wire model as compact UTF-8 JSON."""
     if type(value) not in _MODEL_PARSERS:
         raise ValidationError("unsupported x402 wire model")
-    data = _validate_tree(value.to_dict())
+    return encode_json_object(value.to_dict())
+
+
+def encode_json_object(value: JsonObject) -> bytes:
+    """Encode a bounded JSON object."""
+    data = _validate_tree(value)
+    if not isinstance(data, dict):
+        raise ValidationError("JSON top level must be an object")
     encoded = json.dumps(data, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode(
         "utf-8"
     )
@@ -191,3 +199,28 @@ def encode_payment_response_header(value: SettlementResponse) -> str:
 
 def decode_payment_response_header(value: str) -> SettlementResponse:
     return decode_header(value, SettlementResponse)
+
+
+def encode_extension_responses_header(value: JsonObject) -> str:
+    encoded = base64.b64encode(encode_json_object(value)).decode("ascii")
+    if len(encoded) > MAX_HEADER_CHARS:
+        raise ValidationError("header output exceeds size limit")
+    return encoded
+
+
+def decode_extension_responses_header(value: str) -> JsonObject:
+    if not isinstance(value, str) or len(value) > MAX_HEADER_CHARS:
+        raise ValidationError("header value exceeds size limit")
+    try:
+        raw = value.encode("ascii", errors="strict")
+        decoded = base64.b64decode(raw, validate=True)
+    except (UnicodeEncodeError, binascii.Error, ValueError) as exc:
+        raise ValidationError("invalid base64 header value") from exc
+    return decode_json_object(decoded)
+
+
+__all__ += [
+    "decode_extension_responses_header",
+    "encode_extension_responses_header",
+    "encode_json_object",
+]

@@ -104,3 +104,16 @@ def test_named_http_headers_bind_expected_wire_models() -> None:
         encode_payment_required_header(payment)  # type: ignore[arg-type]
     with pytest.raises(ValidationError):
         decode_payment_response_header(encode_payment_signature_header(payment))
+
+
+def test_extension_response_header_uses_bounded_json_object_codec() -> None:
+    from substrata.x402.codec import (
+        decode_extension_responses_header,
+        encode_extension_responses_header,
+    )
+
+    result = {"bazaar": {"item": "abc", "accepted": True}}
+    assert decode_extension_responses_header(encode_extension_responses_header(result)) == result
+    malformed = base64.b64encode(b'{"bazaar":{},"bazaar":{}}').decode()
+    with pytest.raises(ValidationError):
+        decode_extension_responses_header(malformed)

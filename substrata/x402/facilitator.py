@@ -7,13 +7,18 @@ import json
 import urllib.error
 import urllib.request
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from types import MappingProxyType
 from typing import Protocol
 from urllib.parse import urlsplit
 
 from substrata.errors import IntegrationError, ValidationError
-from substrata.x402.codec import MAX_JSON_BYTES, decode_json, decode_json_object
+from substrata.x402.codec import (
+    MAX_JSON_BYTES,
+    decode_extension_responses_header,
+    decode_json,
+    decode_json_object,
+)
 from substrata.x402.models import (
     JsonObject,
     JsonValue,
@@ -38,6 +43,17 @@ class FacilitatorError(IntegrationError):
 class TransportResponse:
     status: int
     body: bytes
+    headers: Mapping[str, str] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.headers, Mapping):
+            raise ValidationError("transport response headers must be a mapping")
+        normalized: dict[str, str] = {}
+        for name, value in self.headers.items():
+            if not isinstance(name, str) or not isinstance(value, str):
+                raise ValidationError("transport response headers must contain strings")
+            normalized[name.lower()] = value
+        object.__setattr__(self, "headers", MappingProxyType(normalized))
 
 
 class Transport(Protocol):
@@ -82,7 +98,7 @@ class UrllibTransport:
         except urllib.error.HTTPError as error:
             # Redirect responses are returned for normal status handling; no location is followed.
             if 300 <= error.code < 400:
-                return TransportResponse(error.code, b"")
+                return TransportResponse(error.code, b"", dict(error.headers.items()))
             try:
                 raw = error.read(max_response_bytes + 1)
             finally:
@@ -91,7 +107,7 @@ class UrllibTransport:
                 raise FacilitatorError(
                     "facilitator response exceeds size limit", status_code=error.code
                 ) from None
-            return TransportResponse(error.code, raw)
+            return TransportResponse(error.code, raw, dict(error.headers.items()))
         except (urllib.error.URLError, TimeoutError, OSError):
             raise FacilitatorError("facilitator transport failed") from None
         try:
@@ -101,7 +117,7 @@ class UrllibTransport:
             response.close()
         if len(raw) > max_response_bytes:
             raise FacilitatorError("facilitator response exceeds size limit", status_code=status)
-        return TransportResponse(status, raw)
+        return TransportResponse(status, raw, dict(response.headers.items()))
 
 
 def _freeze_json(value: object) -> JsonValue:
@@ -285,7 +301,7 @@ class HTTPFacilitator:
         self._max_response_bytes = max_response_bytes
         self._transport = transport or UrllibTransport()
 
-    def _post(self, endpoint: str, request_body: JsonObject) -> bytes:
+    def _post(self, endpoint: str, request_body: JsonObject) -> TransportResponse:
         headers = {"Accept": "application/json", "Content-Type": "application/json"}
         if self._api_key is not None:
             headers["Authorization"] = f"Bearer {self._api_key}"
@@ -311,9 +327,9 @@ class HTTPFacilitator:
         except Exception:
             # Do not echo transport exceptions: they may contain the authenticated URL or headers.
             raise FacilitatorError("facilitator transport failed") from None
-        return self._checked_body(response)
+        return self._checked_response(response)
 
-    def _get(self, endpoint: str) -> bytes:
+    def _get(self, endpoint: str) -> TransportResponse:
         headers = {"Accept": "application/json"}
         if self._api_key is not None:
             headers["Authorization"] = f"Bearer {self._api_key}"
@@ -330,9 +346,9 @@ class HTTPFacilitator:
             raise
         except Exception:
             raise FacilitatorError("facilitator transport failed") from None
-        return self._checked_body(response)
+        return self._checked_response(response)
 
-    def _checked_body(self, response: TransportResponse) -> bytes:
+    def _checked_response(self, response: TransportResponse) -> TransportResponse:
         if (
             not isinstance(response, TransportResponse)
             or type(response.status) is not int
@@ -348,14 +364,14 @@ class HTTPFacilitator:
             raise FacilitatorError(
                 "facilitator response exceeds size limit", status_code=response.status
             )
-        return response.body
+        return response
 
     def verify(self, payload: PaymentPayload, requirements: PaymentRequirements) -> VerifyResponse:
         if not isinstance(payload, PaymentPayload) or not isinstance(
             requirements, PaymentRequirements
         ):
             raise ValidationError("verify requires typed payment payload and requirements")
-        body = self._post(
+        response = self._post(
             "verify",
             {
                 "x402Version": 2,
@@ -364,7 +380,14 @@ class HTTPFacilitator:
             },
         )
         try:
-            return decode_json(body, VerifyResponse)
+            result = decode_json(response.body, VerifyResponse)
+            extension_header = response.headers.get("extension-responses")
+            if extension_header is not None:
+                result = replace(
+                    result,
+                    extension_responses=decode_extension_responses_header(extension_header),
+                )
+            return result
         except ValidationError:
             raise FacilitatorError("facilitator returned invalid verify response") from None
 
@@ -375,7 +398,7 @@ class HTTPFacilitator:
             requirements, PaymentRequirements
         ):
             raise ValidationError("settle requires typed payment payload and requirements")
-        body = self._post(
+        response = self._post(
             "settle",
             {
                 "x402Version": 2,
@@ -384,14 +407,21 @@ class HTTPFacilitator:
             },
         )
         try:
-            return decode_json(body, SettlementResponse)
+            result = decode_json(response.body, SettlementResponse)
+            extension_header = response.headers.get("extension-responses")
+            if extension_header is not None:
+                result = replace(
+                    result,
+                    extension_responses=decode_extension_responses_header(extension_header),
+                )
+            return result
         except ValidationError:
             raise FacilitatorError("facilitator returned invalid settlement response") from None
 
     def supported(self) -> SupportedResponse:
-        body = self._get("supported")
+        response = self._get("supported")
         try:
-            data = decode_json_object(body)
+            data = decode_json_object(response.body)
             return SupportedResponse.from_dict(data)
         except ValidationError:
             raise FacilitatorError("facilitator returned invalid supported response") from None

@@ -384,6 +384,7 @@ class VerifyResponse:
     payer: str | None = None
     extensions: FrozenJsonObject = field(default_factory=dict)
     extra: FrozenJsonObject = field(default_factory=dict)
+    extension_responses: FrozenJsonObject = field(default_factory=dict, repr=False)
 
     def __post_init__(self) -> None:
         if type(self.is_valid) is not bool:
@@ -394,6 +395,11 @@ class VerifyResponse:
                 _string(value, name, nonempty=False)
         object.__setattr__(self, "extensions", _freeze_object(self.extensions, "extensions"))
         object.__setattr__(self, "extra", _freeze_object(self.extra, "extra"))
+        object.__setattr__(
+            self,
+            "extension_responses",
+            _freeze_object(self.extension_responses, "extension responses"),
+        )
 
     @classmethod
     def from_dict(cls, value: object) -> VerifyResponse:
@@ -446,6 +452,7 @@ class SettlementResponse:
     payer: str | None = None
     amount: str | None = None
     extensions: FrozenJsonObject = field(default_factory=dict)
+    extension_responses: FrozenJsonObject = field(default_factory=dict, repr=False)
 
     def __post_init__(self) -> None:
         if type(self.success) is not bool:
@@ -462,6 +469,11 @@ class SettlementResponse:
         if self.error_reason == "settlement_pending" and not self.transaction:
             raise ValidationError("settlement_pending requires transaction hash")
         object.__setattr__(self, "extensions", _freeze_object(self.extensions, "extensions"))
+        object.__setattr__(
+            self,
+            "extension_responses",
+            _freeze_object(self.extension_responses, "extension responses"),
+        )
 
     @classmethod
     def from_dict(cls, value: object) -> SettlementResponse:

@@ -184,3 +184,33 @@ def test_supported_rejects_wrong_extension_and_signer_types() -> None:
     transport = FakeTransport([TransportResponse(200, malformed)])
     with pytest.raises(FacilitatorError, match="invalid supported response"):
         HTTPFacilitator("https://facilitator.example", transport=transport).supported()
+
+
+def test_extension_responses_are_decoded_from_http_sidechannel_only() -> None:
+    import base64
+
+    header = base64.b64encode(b'{"bazaar":{"verified":true}}').decode("ascii")
+    transport = FakeTransport(
+        [
+            TransportResponse(
+                200,
+                b'{"isValid":true}',
+                {"eXtEnSiOn-ReSpOnSeS": header},
+            )
+        ]
+    )
+    result = HTTPFacilitator("https://facilitator.example", transport=transport).verify(
+        PAYLOAD, REQUIREMENTS
+    )
+    assert result.extension_responses == {"bazaar": {"verified": True}}
+    assert "extensionResponses" not in result.to_dict()
+
+
+def test_invalid_extension_sidechannel_fails_closed() -> None:
+    transport = FakeTransport(
+        [TransportResponse(200, b'{"isValid":true}', {"EXTENSION-RESPONSES": "%%%"})]
+    )
+    with pytest.raises(FacilitatorError, match="invalid verify response"):
+        HTTPFacilitator("https://facilitator.example", transport=transport).verify(
+            PAYLOAD, REQUIREMENTS
+        )
