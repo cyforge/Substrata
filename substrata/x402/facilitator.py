@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import math
 import urllib.error
 import urllib.request
 from collections.abc import Mapping
@@ -20,6 +21,8 @@ from substrata.x402.codec import (
     decode_json_object,
 )
 from substrata.x402.models import (
+    FrozenJsonObject,
+    FrozenJsonValue,
     JsonObject,
     JsonValue,
     PaymentPayload,
@@ -29,6 +32,22 @@ from substrata.x402.models import (
 )
 
 MAX_TIMEOUT_SECONDS = 300.0
+
+
+def _validate_network(value: str) -> None:
+    if not isinstance(value, str):
+        raise ValidationError("supported kind network must be a CAIP-2 identifier")
+    namespace, separator, reference = value.partition(":")
+    namespace_chars = "abcdefghijklmnopqrstuvwxyz0123456789-_"
+    reference_chars = namespace_chars + namespace_chars.upper()
+    if (
+        not separator
+        or not 3 <= len(namespace) <= 8
+        or any(char not in namespace_chars for char in namespace)
+        or not 1 <= len(reference) <= 32
+        or any(char not in reference_chars for char in reference)
+    ):
+        raise ValidationError("supported kind network must be a CAIP-2 identifier")
 
 
 class FacilitatorError(IntegrationError):
@@ -120,21 +139,27 @@ class UrllibTransport:
         return TransportResponse(status, raw, dict(response.headers.items()))
 
 
-def _freeze_json(value: object) -> JsonValue:
+def _freeze_json(value: object, depth: int = 0) -> FrozenJsonValue:
+    if depth > 64:
+        raise ValidationError("supported response exceeds nesting limit")
     if value is None or type(value) in (bool, int, float, str):
+        if type(value) is int and abs(value) > (1 << 63) - 1:
+            raise ValidationError("supported response contains oversized integer")
+        if type(value) is float and not math.isfinite(value):
+            raise ValidationError("supported response contains non-finite number")
         return value
     if isinstance(value, list):
-        return tuple(_freeze_json(item) for item in value)
-    if isinstance(value, dict) and all(isinstance(key, str) for key in value):
-        return MappingProxyType({key: _freeze_json(item) for key, item in value.items()})
+        return tuple(_freeze_json(item, depth + 1) for item in value)
+    if isinstance(value, Mapping) and all(isinstance(key, str) for key in value):
+        return MappingProxyType({key: _freeze_json(item, depth + 1) for key, item in value.items()})
     raise ValidationError("supported response contains invalid JSON")
 
 
-def _freeze_object(value: dict[str, object]) -> JsonObject:
+def _freeze_object(value: Mapping[str, object]) -> FrozenJsonObject:
     return MappingProxyType({key: _freeze_json(item) for key, item in value.items()})
 
 
-def _thaw(value: JsonValue) -> JsonValue:
+def _thaw(value: FrozenJsonValue) -> JsonValue:
     if isinstance(value, Mapping):
         return {key: _thaw(item) for key, item in value.items()}
     if isinstance(value, tuple):
@@ -147,12 +172,23 @@ class SupportedKind:
     x402_version: int
     scheme: str
     network: str
-    extra: JsonObject | None = None
+    extra: FrozenJsonObject | None = None
+
+    def __post_init__(self) -> None:
+        if type(self.x402_version) is not int or self.x402_version != 2:
+            raise ValidationError("supported kind x402Version must be integer 2")
+        if not isinstance(self.scheme, str) or not self.scheme:
+            raise ValidationError("supported kind scheme must be a non-empty string")
+        _validate_network(self.network)
+        if self.extra is not None:
+            object.__setattr__(self, "extra", _freeze_object(dict(self.extra)))
 
     @classmethod
     def from_dict(cls, value: object) -> SupportedKind:
         if not isinstance(value, dict):
             raise ValidationError("supported kind must be an object")
+        if set(value) - {"x402Version", "scheme", "network", "extra"}:
+            raise ValidationError("supported kind contains unsupported fields")
         version = value.get("x402Version")
         scheme = value.get("scheme")
         network = value.get("network")
@@ -164,7 +200,6 @@ class SupportedKind:
         if extra is not None:
             if not isinstance(extra, dict):
                 raise ValidationError("supported kind extra must be an object")
-            extra = _freeze_object(extra)
         return cls(version, scheme, network, extra)
 
     def to_dict(self) -> JsonObject:
@@ -208,6 +243,8 @@ class SupportedResponse:
     def from_dict(cls, value: object) -> SupportedResponse:
         if not isinstance(value, dict):
             raise ValidationError("supported response must be an object")
+        if set(value) - {"kinds", "extensions", "signers"}:
+            raise ValidationError("supported response contains unsupported fields")
         kinds = value.get("kinds")
         extensions = value.get("extensions")
         signers = value.get("signers")
@@ -251,18 +288,28 @@ class Facilitator(Protocol):
 
 
 def _validate_url(url: str) -> str:
-    parts = urlsplit(url)
-    if (
-        parts.scheme not in ("https", "http")
-        or not parts.hostname
-        or parts.username
-        or parts.password
+    if not isinstance(url, str) or any(
+        char.isspace() or ord(char) < 0x21 or ord(char) == 0x7F for char in url
     ):
         raise ValidationError("facilitator URL must be an absolute HTTPS URL")
-    if parts.query or parts.fragment:
+    try:
+        parts = urlsplit(url)
+        hostname = parts.hostname
+        port = parts.port
+    except ValueError:
+        raise ValidationError("facilitator URL must be an absolute HTTPS URL") from None
+    if (
+        parts.scheme not in ("https", "http")
+        or not hostname
+        or parts.username is not None
+        or parts.password is not None
+        or (port is not None and not 1 <= port <= 65535)
+    ):
+        raise ValidationError("facilitator URL must be an absolute HTTPS URL")
+    if parts.query or "#" in url:
         raise ValidationError("facilitator URL cannot include query or fragment")
     if parts.scheme == "http":
-        host = parts.hostname.lower()
+        host = hostname.lower()
         loopback = host == "localhost"
         try:
             loopback = loopback or ipaddress.ip_address(host).is_loopback
@@ -286,7 +333,11 @@ class HTTPFacilitator:
         transport: Transport | None = None,
     ) -> None:
         self._url = _validate_url(url)
-        if api_key is not None and (not isinstance(api_key, str) or not api_key.strip()):
+        if api_key is not None and (
+            not isinstance(api_key, str)
+            or not api_key
+            or any(not 0x21 <= ord(char) <= 0x7E for char in api_key)
+        ):
             raise ValidationError("api_key must be a non-empty string")
         if (
             not isinstance(timeout, (int, float))

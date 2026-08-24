@@ -214,3 +214,51 @@ def test_invalid_extension_sidechannel_fails_closed() -> None:
         HTTPFacilitator("https://facilitator.example", transport=transport).verify(
             PAYLOAD, REQUIREMENTS
         )
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://facilitator.example:invalid",
+        "https://[2001:db8::1",
+        "https://user@facilitator.example",
+        "https://facilitator.example/path#",
+        "https://facilitator.example/path\nInjected",
+    ],
+)
+def test_facilitator_url_parser_rejects_malformed_or_ambiguous_urls(url: str) -> None:
+    with pytest.raises(ValidationError):
+        HTTPFacilitator(url)
+
+
+def test_facilitator_rejects_header_injection_in_api_key() -> None:
+    with pytest.raises(ValidationError):
+        HTTPFacilitator("https://facilitator.example", api_key="token\r\nInjected: yes")
+
+
+def test_supported_response_preserves_immutable_extra_and_rejects_bad_network() -> None:
+    from substrata.x402.facilitator import SupportedResponse
+
+    data = {
+        "kinds": [
+            {
+                "x402Version": 2,
+                "scheme": "exact",
+                "network": "stellar:testnet",
+                "extra": {"limits": {"networks": ["stellar:testnet"]}},
+            }
+        ],
+        "extensions": [],
+        "signers": {},
+    }
+    response = SupportedResponse.from_dict(data)
+    data["kinds"][0]["extra"]["limits"]["networks"].append("stellar:pubnet")
+    assert response.kinds[0].to_dict()["extra"]["limits"]["networks"] == ["stellar:testnet"]
+    with pytest.raises(ValidationError):
+        SupportedResponse.from_dict(
+            {
+                "kinds": [{"x402Version": 2, "scheme": "exact", "network": "bad"}],
+                "extensions": [],
+                "signers": {},
+            }
+        )
