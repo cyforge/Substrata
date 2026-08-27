@@ -77,6 +77,7 @@ def _http_url(value: str, name: str) -> None:
         or parts.username is not None
         or parts.password is not None
         or "#" in value
+        or parts.netloc.endswith(":")
         or (port is not None and not 1 <= port <= 65535)
     ):
         raise ValidationError(f"{name} must be an absolute HTTP(S) URL")

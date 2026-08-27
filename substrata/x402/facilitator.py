@@ -288,8 +288,10 @@ class Facilitator(Protocol):
 
 
 def _validate_url(url: str) -> str:
-    if not isinstance(url, str) or any(
-        char.isspace() or ord(char) < 0x21 or ord(char) == 0x7F for char in url
+    if (
+        not isinstance(url, str)
+        or len(url) > 2048
+        or any(char.isspace() or ord(char) < 0x21 or ord(char) == 0x7F for char in url)
     ):
         raise ValidationError("facilitator URL must be an absolute HTTPS URL")
     try:
@@ -303,6 +305,7 @@ def _validate_url(url: str) -> str:
         or not hostname
         or parts.username is not None
         or parts.password is not None
+        or parts.netloc.endswith(":")
         or (port is not None and not 1 <= port <= 65535)
     ):
         raise ValidationError("facilitator URL must be an absolute HTTPS URL")

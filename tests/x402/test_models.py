@@ -155,6 +155,7 @@ def test_url_validation_rejects_credentials_fragments_bad_ports_and_controls() -
     for url in (
         "https://user:password@example.test/data",
         "https://example.test:port/data",
+        "https://example.test:/data",
         "https://[::1/data",
         "https://example.test/data#",
         "https://example.test/data\nX-Injected: yes",

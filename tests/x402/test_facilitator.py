@@ -220,6 +220,7 @@ def test_invalid_extension_sidechannel_fails_closed() -> None:
     "url",
     [
         "https://facilitator.example:invalid",
+        "https://facilitator.example:/api",
         "https://[2001:db8::1",
         "https://user@facilitator.example",
         "https://facilitator.example/path#",
