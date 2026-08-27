@@ -36,6 +36,7 @@ from substrata.x402.facilitator import (
     UrllibTransport,
 )
 from substrata.x402.models import (
+    FacilitatorPaymentRequest,
     PaymentPayload,
     PaymentRequired,
     PaymentRequirements,
@@ -62,6 +63,7 @@ __all__ = [
     "TransportResponse",
     "UrllibTransport",
     "PaymentPayload",
+    "FacilitatorPaymentRequest",
     "PaymentRequired",
     "PaymentRequirements",
     "ResourceInfo",

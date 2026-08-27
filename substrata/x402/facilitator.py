@@ -21,6 +21,7 @@ from substrata.x402.codec import (
     decode_json_object,
 )
 from substrata.x402.models import (
+    FacilitatorPaymentRequest,
     FrozenJsonObject,
     FrozenJsonValue,
     JsonObject,
@@ -355,14 +356,14 @@ class HTTPFacilitator:
         self._max_response_bytes = max_response_bytes
         self._transport = transport or UrllibTransport()
 
-    def _post(self, endpoint: str, request_body: JsonObject) -> TransportResponse:
+    def _post(self, endpoint: str, payment_request: FacilitatorPaymentRequest) -> TransportResponse:
         headers = {"Accept": "application/json", "Content-Type": "application/json"}
         if self._api_key is not None:
             headers["Authorization"] = f"Bearer {self._api_key}"
         try:
-            request_bytes = json.dumps(request_body, separators=(",", ":"), allow_nan=False).encode(
-                "utf-8"
-            )
+            request_bytes = json.dumps(
+                payment_request.to_dict(), separators=(",", ":"), allow_nan=False
+            ).encode("utf-8")
         except (TypeError, ValueError, RecursionError):
             raise ValidationError("facilitator request contains invalid JSON") from None
         if len(request_bytes) > MAX_JSON_BYTES:
@@ -427,11 +428,7 @@ class HTTPFacilitator:
             raise ValidationError("verify requires typed payment payload and requirements")
         response = self._post(
             "verify",
-            {
-                "x402Version": 2,
-                "paymentPayload": payload.to_dict(),
-                "paymentRequirements": requirements.to_dict(),
-            },
+            FacilitatorPaymentRequest(payload, requirements),
         )
         try:
             result = decode_json(response.body, VerifyResponse)
@@ -454,11 +451,7 @@ class HTTPFacilitator:
             raise ValidationError("settle requires typed payment payload and requirements")
         response = self._post(
             "settle",
-            {
-                "x402Version": 2,
-                "paymentPayload": payload.to_dict(),
-                "paymentRequirements": requirements.to_dict(),
-            },
+            FacilitatorPaymentRequest(payload, requirements),
         )
         try:
             result = decode_json(response.body, SettlementResponse)

@@ -405,6 +405,41 @@ class PaymentPayload:
 
 
 @dataclass(frozen=True, slots=True)
+class FacilitatorPaymentRequest:
+    payment_payload: PaymentPayload
+    payment_requirements: PaymentRequirements
+    x402_version: int = 2
+
+    def __post_init__(self) -> None:
+        _version(self.x402_version)
+        if not isinstance(self.payment_payload, PaymentPayload):
+            raise ValidationError("paymentPayload must be PaymentPayload")
+        if not isinstance(self.payment_requirements, PaymentRequirements):
+            raise ValidationError("paymentRequirements must be PaymentRequirements")
+
+    @classmethod
+    def from_dict(cls, value: object) -> FacilitatorPaymentRequest:
+        data = _object(value, "facilitator payment request")
+        _check_keys(
+            data,
+            "facilitator payment request",
+            {"x402Version", "paymentPayload", "paymentRequirements"},
+        )
+        _version(data.get("x402Version"))
+        return cls(
+            payment_payload=PaymentPayload.from_dict(data.get("paymentPayload")),
+            payment_requirements=PaymentRequirements.from_dict(data.get("paymentRequirements")),
+        )
+
+    def to_dict(self) -> JsonObject:
+        return {
+            "x402Version": self.x402_version,
+            "paymentPayload": self.payment_payload.to_dict(),
+            "paymentRequirements": self.payment_requirements.to_dict(),
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class VerifyResponse:
     is_valid: bool
     invalid_reason: str | None = None
@@ -559,6 +594,7 @@ class SettlementResponse:
 __all__ = [
     "FrozenJsonObject",
     "FrozenJsonValue",
+    "FacilitatorPaymentRequest",
     "JsonObject",
     "JsonValue",
     "JsonObject",

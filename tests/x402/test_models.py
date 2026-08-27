@@ -265,3 +265,22 @@ def test_non_stellar_scheme_payload_remains_scheme_specific() -> None:
     requirements = PaymentRequirements("exact", "eip155:8453", "1", "0xToken", "0xRecipient", 60)
     payload = PaymentPayload(requirements, {"signature": "opaque", "authorization": {}})
     assert payload.to_dict()["payload"] == {"signature": "opaque", "authorization": {}}
+
+
+def test_facilitator_request_is_typed_and_round_trips() -> None:
+    from substrata.x402.models import FacilitatorPaymentRequest
+
+    payload = PaymentPayload(PaymentRequirements.from_dict(REQ), {"transaction": "eA=="})
+    request = FacilitatorPaymentRequest(payload, payload.accepted)
+    restored = FacilitatorPaymentRequest.from_dict(request.to_dict())
+    assert restored == request
+    with pytest.raises(ValidationError):
+        FacilitatorPaymentRequest.from_dict(
+            {
+                "x402Version": True,
+                "paymentPayload": payload.to_dict(),
+                "paymentRequirements": payload.accepted.to_dict(),
+            }
+        )
+    with pytest.raises(ValidationError):
+        FacilitatorPaymentRequest.from_dict({**request.to_dict(), "extra": {}})
