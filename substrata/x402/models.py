@@ -113,8 +113,9 @@ def _version(value: object) -> int:
 
 
 def _optional_object(data: Mapping[str, object], key: str) -> Mapping[str, object] | None:
-    value = data.get(key)
-    return None if value is None else _object(value, key)
+    if key not in data:
+        return None
+    return _object(data[key], key)
 
 
 @dataclass(frozen=True, slots=True)
@@ -136,7 +137,7 @@ class ResourceInfo:
         )
         tags_value = data.get("tags")
         tags = None
-        if tags_value is not None:
+        if "tags" in data:
             if not isinstance(tags_value, list):
                 raise ValidationError("resource.tags must be an array")
             tags = tuple(_string(item, "resource.tags[]") for item in tags_value)
@@ -148,7 +149,7 @@ class ResourceInfo:
         }
         optional: dict[str, str | None] = {}
         for wire, label in fields.items():
-            raw = data.get(wire)
+            raw = data[wire] if wire in data else None
             optional[
                 {
                     "description": "description",
@@ -156,7 +157,7 @@ class ResourceInfo:
                     "serviceName": "service_name",
                     "iconUrl": "icon_url",
                 }[wire]
-            ] = None if raw is None else _string(raw, label)
+            ] = None if wire not in data else _string(raw, label)
         return cls(url=_string(data.get("url"), "resource.url"), tags=tags, **optional)
 
     def __post_init__(self) -> None:
@@ -311,7 +312,7 @@ class PaymentRequired:
         return cls(
             resource=ResourceInfo.from_dict(data.get("resource")),
             accepts=tuple(PaymentRequirements.from_dict(item) for item in accepts),
-            error=None if error is None else _string(error, "error", nonempty=False),
+            error=None if "error" not in data else _string(error, "error", nonempty=False),
             extensions=_optional_object(data, "extensions") or {},
         )
 
@@ -357,9 +358,7 @@ class PaymentPayload:
         return cls(
             accepted=PaymentRequirements.from_dict(data.get("accepted")),
             payload=_object(data.get("payload"), "payload"),
-            resource=None
-            if data.get("resource") is None
-            else ResourceInfo.from_dict(data["resource"]),
+            resource=None if "resource" not in data else ResourceInfo.from_dict(data["resource"]),
             extensions=_optional_object(data, "extensions") or {},
         )
 
@@ -414,8 +413,7 @@ class VerifyResponse:
             raise ValidationError("isValid must be a boolean")
 
         def optional(key: str) -> str | None:
-            raw = data.get(key)
-            return None if raw is None else _string(raw, key, nonempty=False)
+            return None if key not in data else _string(data[key], key, nonempty=False)
 
         return cls(
             valid,
@@ -497,8 +495,7 @@ class SettlementResponse:
             raise ValidationError("success must be a boolean")
 
         def optional(key: str) -> str | None:
-            raw = data.get(key)
-            return None if raw is None else _string(raw, key, nonempty=False)
+            return None if key not in data else _string(data[key], key, nonempty=False)
 
         return cls(
             success,

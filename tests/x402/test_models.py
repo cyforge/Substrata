@@ -178,3 +178,51 @@ def test_resource_spec_metadata_limits_are_enforced() -> None:
         ResourceInfo("https://example.test", tags=["x"] * 6)  # type: ignore[arg-type]
     with pytest.raises(ValidationError):
         ResourceInfo("https://example.test", tags=["bad\nvalue"])  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    ("builder", "value"),
+    [
+        (
+            ResourceInfo.from_dict,
+            {"url": "https://example.test", "description": None},
+        ),
+        (
+            ResourceInfo.from_dict,
+            {"url": "https://example.test", "tags": None},
+        ),
+        (
+            PaymentRequirements.from_dict,
+            {**REQ, "extra": None},
+        ),
+        (
+            PaymentRequired.from_dict,
+            {
+                "x402Version": 2,
+                "resource": {"url": "https://example.test"},
+                "accepts": [REQ],
+                "error": None,
+            },
+        ),
+        (
+            PaymentPayload.from_dict,
+            {"x402Version": 2, "accepted": REQ, "payload": {}, "resource": None},
+        ),
+        (
+            VerifyResponse.from_dict,
+            {"isValid": True, "payer": None},
+        ),
+        (
+            SettlementResponse.from_dict,
+            {
+                "success": True,
+                "transaction": "abc",
+                "network": "stellar:testnet",
+                "amount": None,
+            },
+        ),
+    ],
+)
+def test_wire_optional_fields_reject_explicit_null(builder, value) -> None:
+    with pytest.raises(ValidationError):
+        builder(value)
