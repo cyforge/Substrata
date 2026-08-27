@@ -110,7 +110,10 @@ def test_resource_metadata_is_typed() -> None:
 
 def test_nested_scheme_payload_is_copied_and_read_only() -> None:
     source = {"transaction": "xdr", "proof": {"siblings": ["a", "b"]}}
-    payload = PaymentPayload(PaymentRequirements.from_dict(REQ), source)
+    generic_requirement = PaymentRequirements(
+        "exact", "eip155:8453", "25", "0xToken", "0xRecipient", 60
+    )
+    payload = PaymentPayload(generic_requirement, source)
     source["proof"]["siblings"].append("changed")
     assert payload.to_dict()["payload"]["proof"] == {"siblings": ["a", "b"]}
     with pytest.raises(TypeError):
@@ -138,12 +141,12 @@ def test_mutable_inputs_are_snapshotted_and_dict_outputs_are_mutable_copies() ->
     requirements_data = {"name": "demo"}
     requirements = PaymentRequirements(
         "exact",
-        "stellar:testnet",
+        "eip155:8453",
         "1",
         "token",
         "recipient",
         60,
-        extra=requirements_data,
+        extra={"areFeesSponsored": True, **requirements_data},
     )
     requirements_data["name"] = "changed"
     wire_copy = requirements.to_dict()
@@ -235,3 +238,30 @@ def test_stellar_atomic_amount_uses_signed_128_bit_bound() -> None:
     assert accepted.amount == maximum
     with pytest.raises(ValidationError, match="Stellar amount"):
         PaymentRequirements.from_dict({**REQ, "amount": str(1 << 127)})
+
+
+@pytest.mark.parametrize("extra", [None, {}, {"areFeesSponsored": False}, {"areFeesSponsored": 1}])
+def test_exact_stellar_requirements_require_sponsored_fees(extra) -> None:
+    with pytest.raises(ValidationError, match="fee sponsorship"):
+        PaymentRequirements("exact", "stellar:testnet", "1", "CABC", "GABC", 60, extra=extra)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {},
+        {"transaction": ""},
+        {"transaction": "not-base64"},
+        {"transaction": "eA==="},
+        {"transaction": "eA==", "nonce": "unexpected"},
+    ],
+)
+def test_exact_stellar_payload_requires_only_canonical_bounded_xdr(payload) -> None:
+    with pytest.raises(ValidationError, match="Stellar|transaction"):
+        PaymentPayload(PaymentRequirements.from_dict(REQ), payload)
+
+
+def test_non_stellar_scheme_payload_remains_scheme_specific() -> None:
+    requirements = PaymentRequirements("exact", "eip155:8453", "1", "0xToken", "0xRecipient", 60)
+    payload = PaymentPayload(requirements, {"signature": "opaque", "authorization": {}})
+    assert payload.to_dict()["payload"] == {"signature": "opaque", "authorization": {}}

@@ -24,6 +24,7 @@ REQUIREMENTS = PaymentRequirements(
     asset="CABC",
     pay_to="GABC",
     max_timeout_seconds=60,
+    extra={"areFeesSponsored": True},
 )
 PAYLOAD = PaymentPayload(REQUIREMENTS, {"transaction": "eA=="})
 

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Mapping, TypeAlias, cast
@@ -16,6 +18,7 @@ FrozenJsonValue: TypeAlias = (
     JsonScalar | tuple["FrozenJsonValue", ...] | Mapping[str, "FrozenJsonValue"]
 )
 FrozenJsonObject: TypeAlias = Mapping[str, FrozenJsonValue]
+MAX_STELLAR_XDR_BASE64_CHARS = 1_398_104
 
 
 def _object(value: object, name: str) -> Mapping[str, object]:
@@ -99,6 +102,24 @@ def _network(value: str) -> None:
 def _check_keys(data: Mapping[str, object], name: str, allowed: set[str]) -> None:
     if set(data) - allowed:
         raise ValidationError(f"{name} contains unsupported fields")
+
+
+def _validate_stellar_payload(payload: FrozenJsonObject) -> None:
+    if set(payload) != {"transaction"}:
+        raise ValidationError("exact Stellar payload requires only transaction XDR")
+    transaction = payload.get("transaction")
+    if (
+        not isinstance(transaction, str)
+        or not transaction
+        or len(transaction) > MAX_STELLAR_XDR_BASE64_CHARS
+    ):
+        raise ValidationError("Stellar transaction must be bounded base64 XDR")
+    try:
+        decoded = base64.b64decode(transaction.encode("ascii"), validate=True)
+    except (UnicodeEncodeError, binascii.Error, ValueError) as exc:
+        raise ValidationError("Stellar transaction must be valid base64 XDR") from exc
+    if not decoded or base64.b64encode(decoded).decode("ascii") != transaction:
+        raise ValidationError("Stellar transaction must use canonical base64 XDR")
 
 
 def _string(value: object, name: str, *, nonempty: bool = True) -> str:
@@ -239,6 +260,9 @@ class PaymentRequirements:
             raise ValidationError("maxTimeoutSeconds must be a positive 32-bit integer")
         if self.extra is not None:
             object.__setattr__(self, "extra", _freeze_object(self.extra, "extra"))
+        if self.scheme == "exact" and self.network.startswith("stellar:"):
+            if self.extra is None or self.extra.get("areFeesSponsored") is not True:
+                raise ValidationError("exact Stellar requirements must enable fee sponsorship")
 
     @classmethod
     def from_dict(cls, value: object) -> PaymentRequirements:
@@ -348,6 +372,8 @@ class PaymentPayload:
             raise ValidationError("resource must be ResourceInfo")
         object.__setattr__(self, "payload", _freeze_object(self.payload, "payload"))
         object.__setattr__(self, "extensions", _freeze_object(self.extensions, "extensions"))
+        if self.accepted.scheme == "exact" and self.accepted.network.startswith("stellar:"):
+            _validate_stellar_payload(self.payload)
 
     @classmethod
     def from_dict(cls, value: object) -> PaymentPayload:

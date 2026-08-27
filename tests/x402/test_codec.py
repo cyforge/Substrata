@@ -13,6 +13,7 @@ REQ = {
     "asset": "CABC",
     "payTo": "GABC",
     "maxTimeoutSeconds": 60,
+    "extra": {"areFeesSponsored": True},
 }
 
 
@@ -31,7 +32,7 @@ def test_json_and_base64_headers_round_trip() -> None:
     assert decode_json(encode_json(model), PaymentRequired) == model
     assert decode_header(encode_header(model), PaymentRequired) == model
     payload = PaymentPayload.from_dict(
-        {"x402Version": 2, "accepted": REQ, "payload": {"transaction": "abc"}}
+        {"x402Version": 2, "accepted": REQ, "payload": {"transaction": "YWJj"}}
     )
     assert decode_header(encode_header(payload), PaymentPayload) == payload
 
@@ -91,7 +92,7 @@ def test_named_http_headers_bind_expected_wire_models() -> None:
         }
     )
     payment = PaymentPayload.from_dict(
-        {"x402Version": 2, "accepted": REQ, "payload": {"transaction": "xdr"}}
+        {"x402Version": 2, "accepted": REQ, "payload": {"transaction": "eGRy"}}
     )
     receipt = SettlementResponse(True, "hash", "stellar:testnet")
     assert PAYMENT_REQUIRED_HEADER == "PAYMENT-REQUIRED"

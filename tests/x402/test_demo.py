@@ -78,6 +78,7 @@ def test_demo_rejects_non_loopback_resources_and_live_network_offers() -> None:
         asset="USDC",
         pay_to="GABC",
         max_timeout_seconds=60,
+        extra={"areFeesSponsored": True},
     )
     with pytest.raises(ValidationError, match="only substrata-demo"):
         signer.sign(live_offer, RESOURCE)
