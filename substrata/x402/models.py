@@ -229,6 +229,8 @@ class PaymentRequirements:
             raise ValidationError("amount exceeds unsigned 256-bit range")
         if int(self.amount) <= 0:
             raise ValidationError("amount must be positive")
+        if self.network.startswith("stellar:") and int(self.amount) > (1 << 127) - 1:
+            raise ValidationError("Stellar amount exceeds signed 128-bit range")
         if (
             type(self.max_timeout_seconds) is not int
             or not 1 <= self.max_timeout_seconds <= 2_147_483_647

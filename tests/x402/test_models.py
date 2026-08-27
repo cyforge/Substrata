@@ -226,3 +226,11 @@ def test_resource_spec_metadata_limits_are_enforced() -> None:
 def test_wire_optional_fields_reject_explicit_null(builder, value) -> None:
     with pytest.raises(ValidationError):
         builder(value)
+
+
+def test_stellar_atomic_amount_uses_signed_128_bit_bound() -> None:
+    maximum = str((1 << 127) - 1)
+    accepted = PaymentRequirements.from_dict({**REQ, "amount": maximum})
+    assert accepted.amount == maximum
+    with pytest.raises(ValidationError, match="Stellar amount"):
+        PaymentRequirements.from_dict({**REQ, "amount": str(1 << 127)})
