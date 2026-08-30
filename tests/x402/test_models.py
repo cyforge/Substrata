@@ -161,6 +161,8 @@ def test_url_validation_rejects_credentials_fragments_bad_ports_and_controls() -
         "https://example.test:/data",
         "https://[::1/data",
         "https://example.test/data#",
+        "https://example.test/bad%2",
+        "https:\\example.test\\data",
         "https://example.test/data\nX-Injected: yes",
     ):
         with pytest.raises(ValidationError):

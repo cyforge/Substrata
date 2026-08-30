@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import re
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Mapping, TypeAlias, cast
@@ -66,7 +67,12 @@ def _thaw(value: FrozenJsonValue) -> JsonValue:
 
 
 def _http_url(value: str, name: str) -> None:
-    if len(value) > 2048 or any(char.isspace() or ord(char) < 0x21 for char in value):
+    if (
+        len(value) > 2048
+        or any(char.isspace() or ord(char) < 0x21 or ord(char) == 0x7F for char in value)
+        or "\\" in value
+        or re.search(r"%(?![0-9A-Fa-f]{2})", value)
+    ):
         raise ValidationError(f"{name} must be an absolute HTTP(S) URL")
     try:
         parts = urlsplit(value)

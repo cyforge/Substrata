@@ -225,6 +225,9 @@ def test_invalid_extension_sidechannel_fails_closed() -> None:
         "https://[2001:db8::1",
         "https://user@facilitator.example",
         "https://facilitator.example/path#",
+        "https://facilitator.example/path?",
+        "https://facilitator.example/bad%2",
+        "https:\\facilitator.example\\api",
         "https://facilitator.example/path\nInjected",
     ],
 )

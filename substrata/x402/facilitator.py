@@ -5,6 +5,7 @@ from __future__ import annotations
 import ipaddress
 import json
 import math
+import re
 import urllib.error
 import urllib.request
 from collections.abc import Mapping
@@ -293,6 +294,8 @@ def _validate_url(url: str) -> str:
         not isinstance(url, str)
         or len(url) > 2048
         or any(char.isspace() or ord(char) < 0x21 or ord(char) == 0x7F for char in url)
+        or "\\" in url
+        or re.search(r"%(?![0-9A-Fa-f]{2})", url)
     ):
         raise ValidationError("facilitator URL must be an absolute HTTPS URL")
     try:
@@ -310,7 +313,7 @@ def _validate_url(url: str) -> str:
         or (port is not None and not 1 <= port <= 65535)
     ):
         raise ValidationError("facilitator URL must be an absolute HTTPS URL")
-    if parts.query or "#" in url:
+    if "?" in url or "#" in url:
         raise ValidationError("facilitator URL cannot include query or fragment")
     if parts.scheme == "http":
         host = hostname.lower()
