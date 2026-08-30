@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from urllib.parse import urlsplit
 
 from substrata.errors import ValidationError
+from substrata.x402.codec import MAX_JSON_BYTES
 from substrata.x402.facilitator import SupportedKind, SupportedResponse
 from substrata.x402.models import (
     PaymentPayload,
@@ -36,8 +37,8 @@ class LocalDemoKey:
     def __init__(self, secret: bytes | None = None) -> None:
         if secret is None:
             secret = secrets.token_bytes(32)
-        if not isinstance(secret, bytes) or len(secret) < 32:
-            raise ValidationError("local demo key must contain at least 32 bytes")
+        if not isinstance(secret, bytes) or not 32 <= len(secret) <= 4096:
+            raise ValidationError("local demo key must contain 32 to 4096 bytes")
         object.__setattr__(self, "_secret", bytes(secret))
 
     @classmethod
@@ -212,8 +213,15 @@ def _is_loopback_url(url: str) -> bool:
 
 
 def _mac(key: bytes, message: dict[str, object]) -> str:
-    canonical = json.dumps(message, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
-    return hmac.new(key, canonical.encode("ascii"), hashlib.sha256).hexdigest()
+    try:
+        canonical = json.dumps(
+            message, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+        ).encode("ascii")
+    except (TypeError, ValueError, RecursionError):
+        raise ValidationError("local demo authorization contains invalid JSON") from None
+    if len(canonical) > MAX_JSON_BYTES:
+        raise ValidationError("local demo authorization exceeds size limit")
+    return hmac.new(key, canonical, hashlib.sha256).hexdigest()
 
 
 __all__ = [

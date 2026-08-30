@@ -137,3 +137,12 @@ def test_pair_factory_shares_one_ephemeral_local_key() -> None:
     assert pair.facilitator.verify(payload, REQUIREMENTS).is_valid
     assert pair.facilitator.settle(payload, REQUIREMENTS).success
     assert "secret" not in repr(pair)
+
+
+def test_demo_key_and_signed_message_sizes_are_bounded() -> None:
+    with pytest.raises(ValidationError, match="32 to 4096 bytes"):
+        LocalDemoKey(b"x" * 4097)
+    key = LocalDemoKey.generate()
+    oversized_resource = ResourceInfo(url=RESOURCE.url, description="x" * (1_048_576 + 1))
+    with pytest.raises(ValidationError, match="size limit"):
+        LocalDemoSigner(key).sign(REQUIREMENTS, oversized_resource)
