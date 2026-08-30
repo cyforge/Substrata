@@ -23,7 +23,9 @@ from substrata.x402.demo import (
     DEMO_SCHEME,
     LocalDemoFacilitator,
     LocalDemoKey,
+    LocalDemoPair,
     LocalDemoSigner,
+    create_local_demo_pair,
 )
 from substrata.x402.facilitator import (
     Facilitator,
@@ -50,7 +52,9 @@ __all__ = [
     "DEMO_SCHEME",
     "LocalDemoFacilitator",
     "LocalDemoKey",
+    "LocalDemoPair",
     "LocalDemoSigner",
+    "create_local_demo_pair",
     "PAYMENT_REQUIRED_HEADER",
     "PAYMENT_RESPONSE_HEADER",
     "PAYMENT_SIGNATURE_HEADER",

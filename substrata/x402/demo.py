@@ -176,6 +176,21 @@ class LocalDemoFacilitator:
             return "invalid_payload"
 
 
+@dataclass(frozen=True, slots=True)
+class LocalDemoPair:
+    signer: LocalDemoSigner
+    facilitator: LocalDemoFacilitator
+
+
+def create_local_demo_pair(*, ttl_seconds: int = DEMO_TTL_SECONDS) -> LocalDemoPair:
+    """Create a local signer and facilitator with one fresh key."""
+    key = LocalDemoKey.generate()
+    return LocalDemoPair(
+        signer=LocalDemoSigner(key, ttl_seconds=ttl_seconds),
+        facilitator=LocalDemoFacilitator(key),
+    )
+
+
 def _check_offer(requirements: PaymentRequirements) -> None:
     if not isinstance(requirements, PaymentRequirements):
         raise ValidationError("demo requires typed payment requirements")
@@ -207,5 +222,7 @@ __all__ = [
     "DEMO_TTL_SECONDS",
     "LocalDemoFacilitator",
     "LocalDemoKey",
+    "LocalDemoPair",
     "LocalDemoSigner",
+    "create_local_demo_pair",
 ]

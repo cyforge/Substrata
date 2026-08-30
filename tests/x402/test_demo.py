@@ -127,3 +127,13 @@ def test_demo_expiry_is_enforced(monkeypatch: pytest.MonkeyPatch) -> None:
         LocalDemoFacilitator(key).verify(payload, REQUIREMENTS).invalid_reason
         == "authorization_expired"
     )
+
+
+def test_pair_factory_shares_one_ephemeral_local_key() -> None:
+    from substrata.x402.demo import create_local_demo_pair
+
+    pair = create_local_demo_pair(ttl_seconds=5)
+    payload = pair.signer.sign(REQUIREMENTS, RESOURCE)
+    assert pair.facilitator.verify(payload, REQUIREMENTS).is_valid
+    assert pair.facilitator.settle(payload, REQUIREMENTS).success
+    assert "secret" not in repr(pair)
