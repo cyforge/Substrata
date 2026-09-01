@@ -409,6 +409,15 @@ class PaymentPayload:
             data["extensions"] = cast(JsonObject, _thaw(cast(FrozenJsonValue, self.extensions)))
         return data
 
+    @property
+    def stellar_transaction_xdr(self) -> bytes:
+        """Return decoded XDR for exact Stellar payloads."""
+        if self.accepted.scheme != "exact" or not self.accepted.network.startswith("stellar:"):
+            raise ValidationError("payload does not contain an exact Stellar transaction")
+        transaction = self.payload["transaction"]
+        assert isinstance(transaction, str)
+        return base64.b64decode(transaction.encode("ascii"), validate=True)
+
 
 @dataclass(frozen=True, slots=True)
 class FacilitatorPaymentRequest:

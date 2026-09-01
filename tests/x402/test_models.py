@@ -41,6 +41,7 @@ def test_stellar_v2_wire_fields_round_trip() -> None:
     )
     assert payload.to_dict()["payload"] == {"transaction": "YWJj"}
     assert payload.accepted.network == "stellar:testnet"
+    assert payload.stellar_transaction_xdr == b"abc"
 
 
 def test_requirements_reject_invalid_amount_and_boolean_timeout() -> None:
@@ -267,6 +268,8 @@ def test_non_stellar_scheme_payload_remains_scheme_specific() -> None:
     requirements = PaymentRequirements("exact", "eip155:8453", "1", "0xToken", "0xRecipient", 60)
     payload = PaymentPayload(requirements, {"signature": "opaque", "authorization": {}})
     assert payload.to_dict()["payload"] == {"signature": "opaque", "authorization": {}}
+    with pytest.raises(ValidationError, match="exact Stellar"):
+        _ = payload.stellar_transaction_xdr
 
 
 def test_facilitator_request_is_typed_and_round_trips() -> None:
