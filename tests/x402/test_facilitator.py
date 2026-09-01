@@ -267,3 +267,21 @@ def test_supported_response_preserves_immutable_extra_and_rejects_bad_network() 
                 "signers": {},
             }
         )
+
+
+def test_transport_response_header_metadata_is_bounded_and_unambiguous() -> None:
+    with pytest.raises(ValidationError, match="size limit"):
+        TransportResponse(200, b"", {"x-large": "x" * 1_500_000})
+    with pytest.raises(ValidationError, match="too many"):
+        TransportResponse(200, b"", {f"x-{index}": "v" for index in range(129)})
+    with pytest.raises(ValidationError, match="invalid header value"):
+        TransportResponse(200, b"", {"x-test": "bad\r\nInjected: yes"})
+    with pytest.raises(ValidationError, match="duplicate extension"):
+        TransportResponse(
+            200,
+            b"",
+            {
+                "Extension-Responses": "e30=",
+                "extension-responses": "e30=",
+            },
+        )

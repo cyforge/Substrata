@@ -34,6 +34,11 @@ from substrata.x402.models import (
 )
 
 MAX_TIMEOUT_SECONDS = 300.0
+MAX_RESPONSE_HEADER_BYTES = 1_500_000
+MAX_RESPONSE_HEADER_COUNT = 128
+_HEADER_NAME_CHARS = frozenset(
+    "!#$%&'*+-.^_`|~0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+)
 
 
 def _validate_network(value: str) -> None:
@@ -69,11 +74,24 @@ class TransportResponse:
     def __post_init__(self) -> None:
         if not isinstance(self.headers, Mapping):
             raise ValidationError("transport response headers must be a mapping")
+        if len(self.headers) > MAX_RESPONSE_HEADER_COUNT:
+            raise ValidationError("transport response contains too many headers")
         normalized: dict[str, str] = {}
+        total_bytes = 0
         for name, value in self.headers.items():
             if not isinstance(name, str) or not isinstance(value, str):
                 raise ValidationError("transport response headers must contain strings")
-            normalized[name.lower()] = value
+            if not name or any(char not in _HEADER_NAME_CHARS for char in name):
+                raise ValidationError("transport response contains an invalid header name")
+            if any(ord(char) < 0x20 and char != "\t" or ord(char) == 0x7F for char in value):
+                raise ValidationError("transport response contains an invalid header value")
+            normalized_name = name.lower()
+            if normalized_name == "extension-responses" and normalized_name in normalized:
+                raise ValidationError("transport response contains duplicate extension headers")
+            total_bytes += len(name) + len(value.encode("utf-8")) + 4
+            if total_bytes > MAX_RESPONSE_HEADER_BYTES:
+                raise ValidationError("transport response headers exceed size limit")
+            normalized[normalized_name] = value
         object.__setattr__(self, "headers", MappingProxyType(normalized))
 
 
