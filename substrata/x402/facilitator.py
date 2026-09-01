@@ -95,6 +95,17 @@ class TransportResponse:
         object.__setattr__(self, "headers", MappingProxyType(normalized))
 
 
+def _collect_http_headers(headers: object) -> dict[str, str]:
+    if not isinstance(headers, Mapping) and not hasattr(headers, "items"):
+        raise FacilitatorError("facilitator returned invalid HTTP headers")
+    get_all = getattr(headers, "get_all", None)
+    if callable(get_all):
+        extension_values = get_all("EXTENSION-RESPONSES", [])
+        if extension_values and len(extension_values) != 1:
+            raise FacilitatorError("facilitator returned duplicate extension response headers")
+    return dict(headers.items())  # type: ignore[attr-defined]
+
+
 class Transport(Protocol):
     """Transport boundary injectable for deterministic offline tests."""
 
@@ -137,7 +148,7 @@ class UrllibTransport:
         except urllib.error.HTTPError as error:
             # Redirect responses are returned for normal status handling; no location is followed.
             if 300 <= error.code < 400:
-                return TransportResponse(error.code, b"", dict(error.headers.items()))
+                return TransportResponse(error.code, b"", _collect_http_headers(error.headers))
             try:
                 raw = error.read(max_response_bytes + 1)
             finally:
@@ -146,7 +157,7 @@ class UrllibTransport:
                 raise FacilitatorError(
                     "facilitator response exceeds size limit", status_code=error.code
                 ) from None
-            return TransportResponse(error.code, raw, dict(error.headers.items()))
+            return TransportResponse(error.code, raw, _collect_http_headers(error.headers))
         except (urllib.error.URLError, TimeoutError, OSError):
             raise FacilitatorError("facilitator transport failed") from None
         try:
@@ -156,7 +167,7 @@ class UrllibTransport:
             response.close()
         if len(raw) > max_response_bytes:
             raise FacilitatorError("facilitator response exceeds size limit", status_code=status)
-        return TransportResponse(status, raw, dict(response.headers.items()))
+        return TransportResponse(status, raw, _collect_http_headers(response.headers))
 
 
 def _freeze_json(value: object, depth: int = 0) -> FrozenJsonValue:

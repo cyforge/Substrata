@@ -285,3 +285,33 @@ def test_transport_response_header_metadata_is_bounded_and_unambiguous() -> None
                 "extension-responses": "e30=",
             },
         )
+
+
+def test_default_transport_rejects_duplicate_extension_headers() -> None:
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    from threading import Thread
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:
+            self.rfile.read(int(self.headers.get("Content-Length", "0")))
+            self.send_response(200)
+            self.send_header("EXTENSION-RESPONSES", "e30=")
+            self.send_header("EXTENSION-RESPONSES", "e30=")
+            self.send_header("Content-Length", "15")
+            self.end_headers()
+            self.wfile.write(b'{"isValid":true}')
+
+        def log_message(self, format: str, *args: object) -> None:
+            return
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        client = HTTPFacilitator(f"http://127.0.0.1:{server.server_port}")
+        with pytest.raises(FacilitatorError, match="duplicate extension"):
+            client.verify(PAYLOAD, REQUIREMENTS)
+    finally:
+        server.shutdown()
+        thread.join(timeout=2)
+        server.server_close()
