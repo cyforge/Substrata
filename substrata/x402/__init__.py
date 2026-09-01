@@ -37,6 +37,7 @@ from substrata.x402.facilitator import (
     TransportResponse,
     UrllibTransport,
 )
+from substrata.x402.headers import PaymentHTTPHeaders
 from substrata.x402.models import (
     FacilitatorPaymentRequest,
     PaymentPayload,
@@ -66,6 +67,7 @@ __all__ = [
     "Transport",
     "TransportResponse",
     "UrllibTransport",
+    "PaymentHTTPHeaders",
     "PaymentPayload",
     "FacilitatorPaymentRequest",
     "PaymentRequired",
