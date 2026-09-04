@@ -315,6 +315,12 @@ class SupportedResponse:
             "signers": {pattern: list(addresses) for pattern, addresses in self.signers.items()},
         }
 
+    def supports(self, scheme: str, network: str) -> bool:
+        """Return whether facilitator advertises this scheme and network pair."""
+        if not isinstance(scheme, str) or not isinstance(network, str):
+            return False
+        return any(kind.scheme == scheme and kind.network == network for kind in self.kinds)
+
 
 class Facilitator(Protocol):
     def verify(

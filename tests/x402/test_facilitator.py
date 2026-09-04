@@ -87,6 +87,8 @@ def test_supported_decodes_kinds() -> None:
     assert result.kinds == (
         SupportedKind(2, "exact", "stellar:testnet", {"areFeesSponsored": True}),
     )
+    assert result.supports("exact", "stellar:testnet")
+    assert not result.supports("exact", "stellar:pubnet")
     assert result.extensions == ("bazaar",)
     assert result.signers == {"stellar:*": ("GABC",)}
     assert result.to_dict()["extensions"] == ["bazaar"]

@@ -60,6 +60,14 @@ class LocalDemoSigner:
         self._key = key
         self._ttl_seconds = ttl_seconds
 
+    def supports(self, requirements: PaymentRequirements) -> bool:
+        """Report offer support without signing or checking the resource URL."""
+        return (
+            isinstance(requirements, PaymentRequirements)
+            and requirements.scheme == DEMO_SCHEME
+            and requirements.network == DEMO_NETWORK
+        )
+
     def sign(self, requirements: PaymentRequirements, resource: ResourceInfo) -> PaymentPayload:
         _check_offer(requirements)
         if not isinstance(resource, ResourceInfo) or not _is_loopback_url(resource.url):

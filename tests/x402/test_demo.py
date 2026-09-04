@@ -40,6 +40,21 @@ def test_local_demo_sign_verify_settle_and_replay_guard() -> None:
     assert duplicate.error_reason == "replay_detected"
 
 
+def test_demo_signer_advertises_offer_support_without_signing() -> None:
+    signer = LocalDemoSigner(LocalDemoKey.generate())
+    assert signer.supports(REQUIREMENTS)
+    assert not signer.supports(object())  # type: ignore[arg-type]
+    unsupported = PaymentRequirements(
+        scheme=DEMO_SCHEME,
+        network="stellar:pubnet",
+        amount="25",
+        asset="SUBSTRATA-DEMO",
+        pay_to="demo-merchant",
+        max_timeout_seconds=60,
+    )
+    assert not signer.supports(unsupported)
+
+
 def test_demo_signature_binds_offer_and_resource() -> None:
     key = LocalDemoKey.generate()
     payload = LocalDemoSigner(key).sign(REQUIREMENTS, RESOURCE)
