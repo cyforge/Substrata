@@ -241,6 +241,13 @@ def test_facilitator_url_parser_rejects_malformed_or_ambiguous_urls(url: str) ->
 def test_facilitator_rejects_header_injection_in_api_key() -> None:
     with pytest.raises(ValidationError):
         HTTPFacilitator("https://facilitator.example", api_key="token\r\nInjected: yes")
+    with pytest.raises(ValidationError, match="8192"):
+        HTTPFacilitator("https://facilitator.example", api_key="x" * 8193)
+
+
+def test_facilitator_rejects_invalid_transport_object() -> None:
+    with pytest.raises(ValidationError, match="request method"):
+        HTTPFacilitator("https://facilitator.example", transport=object())  # type: ignore[arg-type]
 
 
 def test_supported_response_preserves_immutable_extra_and_rejects_bad_network() -> None:

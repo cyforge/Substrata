@@ -388,9 +388,10 @@ class HTTPFacilitator:
         if api_key is not None and (
             not isinstance(api_key, str)
             or not api_key
+            or len(api_key) > 8192
             or any(not 0x21 <= ord(char) <= 0x7E for char in api_key)
         ):
-            raise ValidationError("api_key must be a non-empty string")
+            raise ValidationError("api_key must be 1 to 8192 visible ASCII characters")
         if (
             not isinstance(timeout, (int, float))
             or isinstance(timeout, bool)
@@ -399,6 +400,8 @@ class HTTPFacilitator:
             raise ValidationError("timeout must be greater than zero and at most 300 seconds")
         if type(max_response_bytes) is not int or not 1 <= max_response_bytes <= MAX_JSON_BYTES:
             raise ValidationError("max_response_bytes must be between 1 byte and 1 MiB")
+        if transport is not None and not callable(getattr(transport, "request", None)):
+            raise ValidationError("transport must provide a request method")
         self._api_key = api_key
         self._timeout = float(timeout)
         self._max_response_bytes = max_response_bytes
