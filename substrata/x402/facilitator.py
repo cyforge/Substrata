@@ -213,7 +213,7 @@ class SupportedKind:
     x402_version: int
     scheme: str
     network: str
-    extra: FrozenJsonObject | None = None
+    extra: FrozenJsonObject | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
         if type(self.x402_version) is not int or self.x402_version != 2:

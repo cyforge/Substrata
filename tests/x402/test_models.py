@@ -289,3 +289,39 @@ def test_facilitator_request_is_typed_and_round_trips() -> None:
         )
     with pytest.raises(ValidationError):
         FacilitatorPaymentRequest.from_dict({**request.to_dict(), "extra": {}})
+
+
+def test_wire_model_repr_hides_urls_and_extension_data() -> None:
+    requirements = PaymentRequirements(
+        "exact",
+        "eip155:8453",
+        "1",
+        "token",
+        "recipient",
+        60,
+        extra={"accessToken": "secret-requirement"},
+    )
+    resource = ResourceInfo(
+        "https://example.test/data?token=secret-url",
+        description="resource",
+    )
+    challenge = PaymentRequired(
+        resource,
+        (requirements,),
+        extensions={"proof": {"token": "secret-extension"}},
+    )
+    payload = PaymentPayload(
+        requirements,
+        {"signature": "secret-signature"},
+        resource=resource,
+        extensions={"token": "secret-payload-extension"},
+    )
+    rendered = repr((requirements, resource, challenge, payload))
+    for secret in (
+        "secret-requirement",
+        "secret-url",
+        "secret-extension",
+        "secret-signature",
+        "secret-payload-extension",
+    ):
+        assert secret not in rendered

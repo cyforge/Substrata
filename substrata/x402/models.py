@@ -148,7 +148,7 @@ def _optional_object(data: Mapping[str, object], key: str) -> Mapping[str, objec
 
 @dataclass(frozen=True, slots=True)
 class ResourceInfo:
-    url: str
+    url: str = field(repr=False)
     description: str | None = None
     mime_type: str | None = None
     service_name: str | None = None
@@ -241,7 +241,7 @@ class PaymentRequirements:
     asset: str
     pay_to: str
     max_timeout_seconds: int
-    extra: FrozenJsonObject | None = None
+    extra: FrozenJsonObject | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
         for name in ("scheme", "network", "asset", "pay_to"):
@@ -311,7 +311,7 @@ class PaymentRequired:
     resource: ResourceInfo
     accepts: tuple[PaymentRequirements, ...]
     error: str | None = None
-    extensions: FrozenJsonObject = field(default_factory=dict)
+    extensions: FrozenJsonObject = field(default_factory=dict, repr=False)
     x402_version: int = 2
 
     def __post_init__(self) -> None:
@@ -367,7 +367,7 @@ class PaymentPayload:
     accepted: PaymentRequirements
     payload: FrozenJsonObject = field(repr=False)
     resource: ResourceInfo | None = None
-    extensions: FrozenJsonObject = field(default_factory=dict)
+    extensions: FrozenJsonObject = field(default_factory=dict, repr=False)
     x402_version: int = 2
 
     def __post_init__(self) -> None:
@@ -460,8 +460,8 @@ class VerifyResponse:
     invalid_reason: str | None = None
     invalid_message: str | None = None
     payer: str | None = None
-    extensions: FrozenJsonObject = field(default_factory=dict)
-    extra: FrozenJsonObject = field(default_factory=dict)
+    extensions: FrozenJsonObject = field(default_factory=dict, repr=False)
+    extra: FrozenJsonObject = field(default_factory=dict, repr=False)
     extension_responses: FrozenJsonObject = field(default_factory=dict, repr=False)
 
     def __post_init__(self) -> None:
@@ -528,7 +528,7 @@ class SettlementResponse:
     error_message: str | None = None
     payer: str | None = None
     amount: str | None = None
-    extensions: FrozenJsonObject = field(default_factory=dict)
+    extensions: FrozenJsonObject = field(default_factory=dict, repr=False)
     extension_responses: FrozenJsonObject = field(default_factory=dict, repr=False)
 
     def __post_init__(self) -> None:
