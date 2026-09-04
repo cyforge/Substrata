@@ -39,7 +39,13 @@ from substrata.x402.facilitator import (
 )
 from substrata.x402.headers import PaymentHTTPHeaders
 from substrata.x402.models import (
+    AssetTransferMethod,
     FacilitatorPaymentRequest,
+    FrozenJsonObject,
+    FrozenJsonValue,
+    JsonObject,
+    JsonValue,
+    PaymentFlow,
     PaymentPayload,
     PaymentRequired,
     PaymentRequirements,
@@ -69,7 +75,13 @@ __all__ = [
     "UrllibTransport",
     "PaymentHTTPHeaders",
     "PaymentPayload",
+    "AssetTransferMethod",
     "FacilitatorPaymentRequest",
+    "FrozenJsonObject",
+    "FrozenJsonValue",
+    "JsonObject",
+    "JsonValue",
+    "PaymentFlow",
     "PaymentRequired",
     "PaymentRequirements",
     "ResourceInfo",

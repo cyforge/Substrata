@@ -7,7 +7,7 @@ import binascii
 import re
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import Mapping, TypeAlias, cast
+from typing import Literal, Mapping, TypeAlias, cast
 from urllib.parse import urlsplit
 
 from substrata.errors import ValidationError
@@ -19,6 +19,8 @@ FrozenJsonValue: TypeAlias = (
     JsonScalar | tuple["FrozenJsonValue", ...] | Mapping[str, "FrozenJsonValue"]
 )
 FrozenJsonObject: TypeAlias = Mapping[str, FrozenJsonValue]
+PaymentFlow: TypeAlias = Literal["authorization", "upfront", "escrow"]
+AssetTransferMethod: TypeAlias = str
 MAX_STELLAR_XDR_BASE64_CHARS = 1_398_104
 
 
@@ -266,6 +268,20 @@ class PaymentRequirements:
             raise ValidationError("maxTimeoutSeconds must be a positive 32-bit integer")
         if self.extra is not None:
             object.__setattr__(self, "extra", _freeze_object(self.extra, "extra"))
+            if "assetTransferMethod" in self.extra:
+                method = self.extra["assetTransferMethod"]
+                if not isinstance(method, str) or not method:
+                    raise ValidationError("extra.assetTransferMethod must be a non-empty string")
+            if "paymentFlow" in self.extra:
+                flow = self.extra["paymentFlow"]
+                if not isinstance(flow, str) or flow not in {
+                    "authorization",
+                    "upfront",
+                    "escrow",
+                }:
+                    raise ValidationError(
+                        "extra.paymentFlow must be authorization, upfront, or escrow"
+                    )
         if self.scheme == "exact" and self.network.startswith("stellar:"):
             if self.extra is None or self.extra.get("areFeesSponsored") is not True:
                 raise ValidationError("exact Stellar requirements must enable fee sponsorship")
@@ -302,8 +318,20 @@ class PaymentRequirements:
             "maxTimeoutSeconds": self.max_timeout_seconds,
         }
         if self.extra is not None:
-            data["extra"] = cast(JsonObject, _thaw(cast(JsonValue, self.extra)))
+            data["extra"] = cast(JsonObject, _thaw(cast(FrozenJsonValue, self.extra)))
         return data
+
+    @property
+    def payment_flow(self) -> PaymentFlow | None:
+        if self.extra is None:
+            return None
+        return cast(PaymentFlow | None, self.extra.get("paymentFlow"))
+
+    @property
+    def asset_transfer_method(self) -> AssetTransferMethod | None:
+        if self.extra is None:
+            return None
+        return cast(AssetTransferMethod | None, self.extra.get("assetTransferMethod"))
 
 
 @dataclass(frozen=True, slots=True)
@@ -607,13 +635,13 @@ class SettlementResponse:
 
 
 __all__ = [
+    "AssetTransferMethod",
     "FrozenJsonObject",
     "FrozenJsonValue",
     "FacilitatorPaymentRequest",
     "JsonObject",
     "JsonValue",
-    "JsonObject",
-    "JsonValue",
+    "PaymentFlow",
     "PaymentPayload",
     "PaymentRequired",
     "PaymentRequirements",

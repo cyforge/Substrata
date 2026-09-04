@@ -325,3 +325,25 @@ def test_wire_model_repr_hides_urls_and_extension_data() -> None:
         "secret-payload-extension",
     ):
         assert secret not in rendered
+
+
+def test_reserved_payment_flow_and_transfer_method_are_typed() -> None:
+    requirements = PaymentRequirements(
+        "exact",
+        "eip155:8453",
+        "12",
+        "token",
+        "recipient",
+        60,
+        extra={"assetTransferMethod": "permit2", "paymentFlow": "upfront"},
+    )
+    assert requirements.asset_transfer_method == "permit2"
+    assert requirements.payment_flow == "upfront"
+    with pytest.raises(ValidationError, match="assetTransferMethod"):
+        PaymentRequirements(
+            "exact", "eip155:8453", "1", "a", "b", 60, extra={"assetTransferMethod": None}
+        )
+    with pytest.raises(ValidationError, match="paymentFlow"):
+        PaymentRequirements(
+            "exact", "eip155:8453", "1", "a", "b", 60, extra={"paymentFlow": "later"}
+        )
