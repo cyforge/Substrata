@@ -65,6 +65,14 @@ class FacilitatorError(IntegrationError):
         self.status_code = status_code
 
 
+class _ResponseTooLarge(FacilitatorError):
+    pass
+
+
+class _DuplicateExtensionHeaders(FacilitatorError):
+    pass
+
+
 @dataclass(frozen=True, slots=True)
 class TransportResponse:
     status: int
@@ -102,7 +110,9 @@ def _collect_http_headers(headers: object) -> dict[str, str]:
     if callable(get_all):
         extension_values = get_all("EXTENSION-RESPONSES", [])
         if extension_values and len(extension_values) != 1:
-            raise FacilitatorError("facilitator returned duplicate extension response headers")
+            raise _DuplicateExtensionHeaders(
+                "facilitator returned duplicate extension response headers"
+            )
     return dict(headers.items())  # type: ignore[attr-defined]
 
 
@@ -154,7 +164,7 @@ class UrllibTransport:
             finally:
                 error.close()
             if len(raw) > max_response_bytes:
-                raise FacilitatorError(
+                raise _ResponseTooLarge(
                     "facilitator response exceeds size limit", status_code=error.code
                 ) from None
             return TransportResponse(error.code, raw, _collect_http_headers(error.headers))
@@ -166,7 +176,7 @@ class UrllibTransport:
         finally:
             response.close()
         if len(raw) > max_response_bytes:
-            raise FacilitatorError("facilitator response exceeds size limit", status_code=status)
+            raise _ResponseTooLarge("facilitator response exceeds size limit", status_code=status)
         return TransportResponse(status, raw, _collect_http_headers(response.headers))
 
 
@@ -409,8 +419,14 @@ class HTTPFacilitator:
                 timeout=self._timeout,
                 max_response_bytes=self._max_response_bytes,
             )
-        except FacilitatorError:
-            raise
+        except _ResponseTooLarge as error:
+            raise FacilitatorError(
+                "facilitator response exceeds size limit", status_code=error.status_code
+            ) from None
+        except _DuplicateExtensionHeaders:
+            raise FacilitatorError(
+                "facilitator returned duplicate extension response headers"
+            ) from None
         except Exception:
             # Do not echo transport exceptions: they may contain the authenticated URL or headers.
             raise FacilitatorError("facilitator transport failed") from None
@@ -429,8 +445,14 @@ class HTTPFacilitator:
                 timeout=self._timeout,
                 max_response_bytes=self._max_response_bytes,
             )
-        except FacilitatorError:
-            raise
+        except _ResponseTooLarge as error:
+            raise FacilitatorError(
+                "facilitator response exceeds size limit", status_code=error.status_code
+            ) from None
+        except _DuplicateExtensionHeaders:
+            raise FacilitatorError(
+                "facilitator returned duplicate extension response headers"
+            ) from None
         except Exception:
             raise FacilitatorError("facilitator transport failed") from None
         return self._checked_response(response)

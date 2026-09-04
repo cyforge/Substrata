@@ -315,3 +315,22 @@ def test_default_transport_rejects_duplicate_extension_headers() -> None:
         server.shutdown()
         thread.join(timeout=2)
         server.server_close()
+
+
+def test_injected_transport_errors_are_sanitized() -> None:
+    secret = "private-facilitator-token"
+
+    class RaisingTransport:
+        def request(self, *args, **kwargs):
+            raise FacilitatorError(f"request failed for {secret}")
+
+    client = HTTPFacilitator(
+        "https://facilitator.example",
+        api_key=secret,
+        transport=RaisingTransport(),  # type: ignore[arg-type]
+    )
+    with pytest.raises(FacilitatorError) as raised:
+        client.verify(PAYLOAD, REQUIREMENTS)
+    assert str(raised.value) == "facilitator transport failed"
+    assert secret not in str(raised.value)
+    assert raised.value.__cause__ is None
