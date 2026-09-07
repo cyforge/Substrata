@@ -363,3 +363,45 @@ def test_success_responses_reject_failure_diagnostics() -> None:
                 "errorReason": "settlement_pending",
             }
         )
+
+
+def test_payment_required_filters_offers_without_choosing_a_rail() -> None:
+    base = PaymentRequirements(
+        "exact",
+        "eip155:8453",
+        "100",
+        "token",
+        "recipient",
+        60,
+        extra={"assetTransferMethod": "permit2", "paymentFlow": "authorization"},
+    )
+    other = PaymentRequirements(
+        "exact",
+        "eip155:8453",
+        "100",
+        "token",
+        "recipient",
+        60,
+        extra={"assetTransferMethod": "eip3009", "paymentFlow": "authorization"},
+    )
+    different_network = PaymentRequirements(
+        "exact",
+        "eip155:84532",
+        "100",
+        "token",
+        "recipient",
+        60,
+    )
+    challenge = PaymentRequired(
+        ResourceInfo("https://example.test"),
+        (base, other, different_network),
+    )
+    assert challenge.offers_for("exact", "eip155:8453") == (base, other)
+    assert challenge.offers_for(
+        "exact",
+        "eip155:8453",
+        asset_transfer_method="permit2",
+        payment_flow="authorization",
+    ) == (base,)
+    assert challenge.offers_for("exact", "eip155:8453", asset_transfer_method="unknown") == ()
+    assert challenge.offers_for("exact", "eip155:8453", payment_flow="future") == ()  # type: ignore[arg-type]

@@ -389,6 +389,37 @@ class PaymentRequired:
             data["extensions"] = cast(JsonObject, _thaw(cast(FrozenJsonValue, self.extensions)))
         return data
 
+    def offers_for(
+        self,
+        scheme: str,
+        network: str,
+        *,
+        asset_transfer_method: str | None = None,
+        payment_flow: PaymentFlow | None = None,
+    ) -> tuple[PaymentRequirements, ...]:
+        """Return offered methods matching explicit scheme and network criteria."""
+        if not isinstance(scheme, str) or not isinstance(network, str):
+            return ()
+        if asset_transfer_method is not None and not isinstance(asset_transfer_method, str):
+            return ()
+        if payment_flow is not None:
+            if not isinstance(payment_flow, str) or payment_flow not in {
+                "authorization",
+                "upfront",
+                "escrow",
+            }:
+                return ()
+        return tuple(
+            item
+            for item in self.accepts
+            if item.scheme == scheme
+            and item.network == network
+            and (
+                asset_transfer_method is None or item.asset_transfer_method == asset_transfer_method
+            )
+            and (payment_flow is None or item.payment_flow == payment_flow)
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class PaymentPayload:
