@@ -347,3 +347,19 @@ def test_reserved_payment_flow_and_transfer_method_are_typed() -> None:
         PaymentRequirements(
             "exact", "eip155:8453", "1", "a", "b", 60, extra={"paymentFlow": "later"}
         )
+
+
+def test_success_responses_reject_failure_diagnostics() -> None:
+    with pytest.raises(ValidationError, match="valid verify response"):
+        VerifyResponse.from_dict({"isValid": True, "invalidReason": "invalid_payload"})
+    with pytest.raises(ValidationError, match="valid verify response"):
+        VerifyResponse.from_dict({"isValid": True, "invalidMessage": "bad"})
+    with pytest.raises(ValidationError, match="successful settlement"):
+        SettlementResponse.from_dict(
+            {
+                "success": True,
+                "transaction": "hash",
+                "network": "stellar:testnet",
+                "errorReason": "settlement_pending",
+            }
+        )

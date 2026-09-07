@@ -499,6 +499,8 @@ class VerifyResponse:
             value = getattr(self, name)
             if value is not None:
                 _string(value, name, nonempty=False)
+        if self.is_valid and (self.invalid_reason is not None or self.invalid_message is not None):
+            raise ValidationError("valid verify response cannot include invalid reason or message")
         object.__setattr__(self, "extensions", _freeze_object(self.extensions, "extensions"))
         object.__setattr__(self, "extra", _freeze_object(self.extra, "extra"))
         object.__setattr__(
@@ -569,6 +571,8 @@ class SettlementResponse:
             value = getattr(self, name)
             if value is not None:
                 _string(value, name, nonempty=False)
+        if self.success and (self.error_reason is not None or self.error_message is not None):
+            raise ValidationError("successful settlement cannot include error reason or message")
         if self.amount is not None:
             _string(self.amount, "amount", nonempty=False)
         if self.error_reason == "settlement_pending" and not self.transaction:
