@@ -73,6 +73,10 @@ class _DuplicateExtensionHeaders(FacilitatorError):
     pass
 
 
+class _InvalidContentLength(FacilitatorError):
+    pass
+
+
 @dataclass(frozen=True, slots=True)
 class TransportResponse:
     status: int
@@ -114,6 +118,26 @@ def _collect_http_headers(headers: object) -> dict[str, str]:
                 "facilitator returned duplicate extension response headers"
             )
     return dict(headers.items())  # type: ignore[attr-defined]
+
+
+def _check_declared_body_length(headers: object, maximum: int, status: int) -> None:
+    get_all = getattr(headers, "get_all", None)
+    if not callable(get_all):
+        return
+    values = get_all("Content-Length", [])
+    if not values:
+        return
+    if (
+        len(values) != 1
+        or not isinstance(values[0], str)
+        or not values[0].isascii()
+        or not values[0].isdigit()
+    ):
+        raise _InvalidContentLength(
+            "facilitator returned invalid Content-Length", status_code=status
+        )
+    if int(values[0]) > maximum:
+        raise _ResponseTooLarge("facilitator response exceeds size limit", status_code=status)
 
 
 class Transport(Protocol):
@@ -160,6 +184,7 @@ class UrllibTransport:
             if 300 <= error.code < 400:
                 return TransportResponse(error.code, b"", _collect_http_headers(error.headers))
             try:
+                _check_declared_body_length(error.headers, max_response_bytes, error.code)
                 raw = error.read(max_response_bytes + 1)
             finally:
                 error.close()
@@ -171,6 +196,7 @@ class UrllibTransport:
         except (urllib.error.URLError, TimeoutError, OSError):
             raise FacilitatorError("facilitator transport failed") from None
         try:
+            _check_declared_body_length(response.headers, max_response_bytes, response.status)
             raw = response.read(max_response_bytes + 1)
             status = response.status
         finally:
@@ -436,6 +462,10 @@ class HTTPFacilitator:
             raise FacilitatorError(
                 "facilitator returned duplicate extension response headers"
             ) from None
+        except _InvalidContentLength as error:
+            raise FacilitatorError(
+                "facilitator returned invalid Content-Length", status_code=error.status_code
+            ) from None
         except Exception:
             # Do not echo transport exceptions: they may contain the authenticated URL or headers.
             raise FacilitatorError("facilitator transport failed") from None
@@ -461,6 +491,10 @@ class HTTPFacilitator:
         except _DuplicateExtensionHeaders:
             raise FacilitatorError(
                 "facilitator returned duplicate extension response headers"
+            ) from None
+        except _InvalidContentLength as error:
+            raise FacilitatorError(
+                "facilitator returned invalid Content-Length", status_code=error.status_code
             ) from None
         except Exception:
             raise FacilitatorError("facilitator transport failed") from None

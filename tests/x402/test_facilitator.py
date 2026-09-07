@@ -343,3 +343,60 @@ def test_injected_transport_errors_are_sanitized() -> None:
     assert str(raised.value) == "facilitator transport failed"
     assert secret not in str(raised.value)
     assert raised.value.__cause__ is None
+
+
+def test_default_transport_rejects_oversized_declared_body_before_reading() -> None:
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    from threading import Thread
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            self.send_response(200)
+            self.send_header("Content-Length", str(1_048_577))
+            self.end_headers()
+
+        def log_message(self, format: str, *args: object) -> None:
+            return
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        client = HTTPFacilitator(
+            f"http://127.0.0.1:{server.server_port}",
+            max_response_bytes=1024,
+        )
+        with pytest.raises(FacilitatorError, match="size limit"):
+            client.supported()
+    finally:
+        server.shutdown()
+        thread.join(timeout=2)
+        server.server_close()
+
+
+def test_default_transport_rejects_ambiguous_content_length() -> None:
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    from threading import Thread
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            self.send_response(200)
+            self.send_header("Content-Length", "1")
+            self.send_header("Content-Length", "1")
+            self.end_headers()
+            self.wfile.write(b"x")
+
+        def log_message(self, format: str, *args: object) -> None:
+            return
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        client = HTTPFacilitator(f"http://127.0.0.1:{server.server_port}")
+        with pytest.raises(FacilitatorError, match="invalid Content-Length"):
+            client.supported()
+    finally:
+        server.shutdown()
+        thread.join(timeout=2)
+        server.server_close()
