@@ -60,6 +60,14 @@ class LocalDemoSigner:
         self._key = key
         self._ttl_seconds = ttl_seconds
 
+    def supports(self, requirements: PaymentRequirements) -> bool:
+        """Report offer support without signing or checking the resource URL."""
+        return (
+            isinstance(requirements, PaymentRequirements)
+            and requirements.scheme == DEMO_SCHEME
+            and requirements.network == DEMO_NETWORK
+        )
+
     def sign(self, requirements: PaymentRequirements, resource: ResourceInfo) -> PaymentPayload:
         _check_offer(requirements)
         if not isinstance(resource, ResourceInfo) or not _is_loopback_url(resource.url):
@@ -114,7 +122,11 @@ class LocalDemoFacilitator:
                 return SettlementResponse(
                     success=False,
                     transaction="",
-                    network=DEMO_NETWORK,
+                    network=(
+                        requirements.network
+                        if isinstance(requirements, PaymentRequirements)
+                        else DEMO_NETWORK
+                    ),
                     error_reason=failure,
                 )
             nonce = payload.payload["nonce"]
@@ -134,7 +146,12 @@ class LocalDemoFacilitator:
         self, payload: PaymentPayload, requirements: PaymentRequirements
     ) -> str | None:
         try:
-            _check_offer(requirements)
+            if not isinstance(requirements, PaymentRequirements):
+                return "invalid_payment_requirements"
+            if requirements.network != DEMO_NETWORK:
+                return "invalid_network"
+            if requirements.scheme != DEMO_SCHEME:
+                return "invalid_scheme"
             if not isinstance(payload, PaymentPayload) or payload.accepted != requirements:
                 return "invalid_payload"
             resource = payload.resource
