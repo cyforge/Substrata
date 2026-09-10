@@ -349,6 +349,13 @@ def test_reserved_payment_flow_and_transfer_method_are_typed() -> None:
         )
 
 
+def test_requirements_expose_parsed_network_and_atomic_amount() -> None:
+    requirements = PaymentRequirements.from_dict(REQ)
+    assert requirements.amount_atomic == 10_000_000
+    assert requirements.network_namespace == "stellar"
+    assert requirements.network_reference == "testnet"
+
+
 def test_success_responses_reject_failure_diagnostics() -> None:
     with pytest.raises(ValidationError, match="valid verify response"):
         VerifyResponse.from_dict({"isValid": True, "invalidReason": "invalid_payload"})

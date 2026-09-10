@@ -322,6 +322,18 @@ class PaymentRequirements:
         return data
 
     @property
+    def amount_atomic(self) -> int:
+        return int(self.amount)
+
+    @property
+    def network_namespace(self) -> str:
+        return self.network.partition(":")[0]
+
+    @property
+    def network_reference(self) -> str:
+        return self.network.partition(":")[2]
+
+    @property
     def payment_flow(self) -> PaymentFlow | None:
         if self.extra is None:
             return None
