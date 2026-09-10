@@ -30,11 +30,21 @@ def _object(value: object, name: str) -> Mapping[str, object]:
     return cast(Mapping[str, object], value)
 
 
+def _valid_unicode(value: str, name: str) -> str:
+    try:
+        value.encode("utf-8", errors="strict")
+    except UnicodeEncodeError as exc:
+        raise ValidationError(f"{name} must contain valid Unicode") from exc
+    return value
+
+
 def _freeze(value: object, name: str, depth: int = 0) -> FrozenJsonValue:
     if depth > 64:
         raise ValidationError(f"{name} exceeds nesting limit")
-    if value is None or type(value) in (bool, str):
+    if value is None or type(value) is bool:
         return cast(FrozenJsonValue, value)
+    if type(value) is str:
+        return _valid_unicode(value, name)
     if type(value) is int:
         if abs(value) > (1 << 63) - 1:
             raise ValidationError(f"{name} contains oversized integer")
@@ -50,6 +60,8 @@ def _freeze(value: object, name: str, depth: int = 0) -> FrozenJsonValue:
     if isinstance(value, Mapping):
         if any(not isinstance(key, str) for key in value):
             raise ValidationError(f"{name} keys must be strings")
+        for key in value:
+            _valid_unicode(key, name)
         return MappingProxyType(
             {key: _freeze(item, name, depth + 1) for key, item in value.items()}
         )
@@ -133,7 +145,7 @@ def _validate_stellar_payload(payload: FrozenJsonObject) -> None:
 def _string(value: object, name: str, *, nonempty: bool = True) -> str:
     if not isinstance(value, str) or (nonempty and not value):
         raise ValidationError(f"{name} must be a{' non-empty' if nonempty else ''} string")
-    return value
+    return _valid_unicode(value, name)
 
 
 def _version(value: object) -> int:

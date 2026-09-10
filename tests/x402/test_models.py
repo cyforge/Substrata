@@ -412,3 +412,19 @@ def test_payment_required_filters_offers_without_choosing_a_rail() -> None:
     ) == (base,)
     assert challenge.offers_for("exact", "eip155:8453", asset_transfer_method="unknown") == ()
     assert challenge.offers_for("exact", "eip155:8453", payment_flow="future") == ()  # type: ignore[arg-type]
+
+
+def test_models_reject_unpaired_unicode_surrogates() -> None:
+    requirements = PaymentRequirements("exact", "eip155:8453", "1", "asset", "payee", 60)
+    with pytest.raises(ValidationError, match="Unicode"):
+        PaymentPayload(requirements, {"signature": "\ud800"})
+    with pytest.raises(ValidationError, match="Unicode"):
+        PaymentRequirements(
+            "exact",
+            "eip155:8453",
+            "1",
+            "asset",
+            "payee",
+            60,
+            extra={"\ud800": "value"},
+        )
