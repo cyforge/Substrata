@@ -428,3 +428,32 @@ def test_models_reject_unpaired_unicode_surrogates() -> None:
             60,
             extra={"\ud800": "value"},
         )
+
+
+def test_settlement_amount_is_atomic_units_with_offchain_empty_exception() -> None:
+    offchain = SettlementResponse(
+        success=True,
+        transaction="",
+        network="eip155:8453",
+        amount="",
+    )
+    assert offchain.success and offchain.transaction == "" and offchain.amount == ""
+    for amount in ("-1", "1.0", "NaN", str(1 << 256)):
+        with pytest.raises(ValidationError, match="atomic-unit"):
+            SettlementResponse.from_dict(
+                {
+                    "success": False,
+                    "transaction": "",
+                    "network": "eip155:8453",
+                    "amount": amount,
+                }
+            )
+    with pytest.raises(ValidationError, match="amount"):
+        SettlementResponse.from_dict(
+            {
+                "success": False,
+                "transaction": "",
+                "network": "eip155:8453",
+                "amount": 1,
+            }
+        )

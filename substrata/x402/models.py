@@ -630,6 +630,20 @@ class SettlementResponse:
             raise ValidationError("successful settlement cannot include error reason or message")
         if self.amount is not None:
             _string(self.amount, "amount", nonempty=False)
+            # Empty amount is used by valid offchain schemes with no per-call transfer.
+            if self.amount and (
+                not self.amount.isascii()
+                or not self.amount.isdigit()
+                or len(self.amount) > 78
+                or int(self.amount) > (1 << 256) - 1
+            ):
+                raise ValidationError("amount must be an atomic-unit digit string")
+            if (
+                self.amount
+                and self.network.startswith("stellar:")
+                and int(self.amount) > (1 << 127) - 1
+            ):
+                raise ValidationError("Stellar amount exceeds signed 128-bit range")
         if self.error_reason == "settlement_pending" and not self.transaction:
             raise ValidationError("settlement_pending requires transaction hash")
         object.__setattr__(self, "extensions", _freeze_object(self.extensions, "extensions"))
