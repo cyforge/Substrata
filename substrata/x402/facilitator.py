@@ -84,6 +84,10 @@ class TransportResponse:
     headers: Mapping[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        if type(self.status) is not int or not 100 <= self.status <= 599:
+            raise ValidationError("transport response status must be an HTTP status code")
+        if not isinstance(self.body, bytes) or len(self.body) > MAX_JSON_BYTES:
+            raise ValidationError("transport response body exceeds size limit")
         if not isinstance(self.headers, Mapping):
             raise ValidationError("transport response headers must be a mapping")
         if len(self.headers) > MAX_RESPONSE_HEADER_COUNT:

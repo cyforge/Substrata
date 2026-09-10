@@ -400,3 +400,13 @@ def test_default_transport_rejects_ambiguous_content_length() -> None:
         server.shutdown()
         thread.join(timeout=2)
         server.server_close()
+
+
+def test_transport_response_validates_status_and_body_types() -> None:
+    for status in (True, 99, 600):
+        with pytest.raises(ValidationError):
+            TransportResponse(status, b"")  # type: ignore[arg-type]
+    with pytest.raises(ValidationError, match="body"):
+        TransportResponse(200, "not bytes")  # type: ignore[arg-type]
+    with pytest.raises(ValidationError, match="size limit"):
+        TransportResponse(200, b"x" * 1_048_577)
