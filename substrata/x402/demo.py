@@ -122,7 +122,11 @@ class LocalDemoFacilitator:
                 return SettlementResponse(
                     success=False,
                     transaction="",
-                    network=DEMO_NETWORK,
+                    network=(
+                        requirements.network
+                        if isinstance(requirements, PaymentRequirements)
+                        else DEMO_NETWORK
+                    ),
                     error_reason=failure,
                 )
             nonce = payload.payload["nonce"]
@@ -142,7 +146,12 @@ class LocalDemoFacilitator:
         self, payload: PaymentPayload, requirements: PaymentRequirements
     ) -> str | None:
         try:
-            _check_offer(requirements)
+            if not isinstance(requirements, PaymentRequirements):
+                return "invalid_payment_requirements"
+            if requirements.network != DEMO_NETWORK:
+                return "invalid_network"
+            if requirements.scheme != DEMO_SCHEME:
+                return "invalid_scheme"
             if not isinstance(payload, PaymentPayload) or payload.accepted != requirements:
                 return "invalid_payload"
             resource = payload.resource

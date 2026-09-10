@@ -161,3 +161,37 @@ def test_demo_key_and_signed_message_sizes_are_bounded() -> None:
     oversized_resource = ResourceInfo(url=RESOURCE.url, description="x" * (1_048_576 + 1))
     with pytest.raises(ValidationError, match="size limit"):
         LocalDemoSigner(key).sign(REQUIREMENTS, oversized_resource)
+
+
+def test_demo_facilitator_reports_offer_scheme_and_network_failures() -> None:
+    key = LocalDemoKey.generate()
+    facilitator = LocalDemoFacilitator(key)
+    signer = LocalDemoSigner(key)
+    wrong_network = PaymentRequirements(
+        scheme=DEMO_SCHEME,
+        network="stellar:pubnet",
+        amount="25",
+        asset="SUBSTRATA-DEMO",
+        pay_to="demo-merchant",
+        max_timeout_seconds=60,
+    )
+    network_result = facilitator.verify(
+        signer.sign(REQUIREMENTS, RESOURCE),
+        wrong_network,
+    )
+    assert network_result.invalid_reason == "invalid_network"
+    network_settle = facilitator.settle(signer.sign(REQUIREMENTS, RESOURCE), wrong_network)
+    assert network_settle.error_reason == "invalid_network"
+    assert network_settle.network == "stellar:pubnet"
+
+    wrong_scheme = PaymentRequirements(
+        scheme="exact",
+        network=DEMO_NETWORK,
+        amount="25",
+        asset="SUBSTRATA-DEMO",
+        pay_to="demo-merchant",
+        max_timeout_seconds=60,
+        extra={"areFeesSponsored": True},
+    )
+    scheme_result = facilitator.verify(signer.sign(REQUIREMENTS, RESOURCE), wrong_scheme)
+    assert scheme_result.invalid_reason == "invalid_scheme"
