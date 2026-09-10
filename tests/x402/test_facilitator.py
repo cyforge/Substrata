@@ -410,3 +410,60 @@ def test_transport_response_validates_status_and_body_types() -> None:
         TransportResponse(200, "not bytes")  # type: ignore[arg-type]
     with pytest.raises(ValidationError, match="size limit"):
         TransportResponse(200, b"x" * 1_048_577)
+
+
+@pytest.mark.parametrize("duplicate", [False, True])
+def test_redirect_error_stream_closes_without_following(duplicate: bool) -> None:
+    from email.message import Message
+    from io import BytesIO
+    from urllib.error import HTTPError
+
+    from substrata.x402.facilitator import UrllibTransport
+
+    headers = Message()
+    headers["Location"] = "/elsewhere"
+    if duplicate:
+        headers["EXTENSION-RESPONSES"] = "e30="
+        headers["extension-responses"] = "e30="
+    response_body = BytesIO(b"redirect body")
+    error = HTTPError(
+        "https://facilitator.example/supported",
+        302,
+        "Found",
+        headers,
+        response_body,
+    )
+
+    class Opener:
+        calls = 0
+
+        def open(self, *args, **kwargs):
+            self.calls += 1
+            raise error
+
+    transport = UrllibTransport()
+    opener = Opener()
+    transport._opener = opener  # type: ignore[assignment]
+
+    if duplicate:
+        with pytest.raises(FacilitatorError, match="duplicate extension"):
+            transport.request(
+                "GET",
+                "https://facilitator.example/supported",
+                headers={},
+                body=None,
+                timeout=1,
+                max_response_bytes=1024,
+            )
+    else:
+        response = transport.request(
+            "GET",
+            "https://facilitator.example/supported",
+            headers={},
+            body=None,
+            timeout=1,
+            max_response_bytes=1024,
+        )
+        assert response.status == 302
+    assert response_body.closed
+    assert opener.calls == 1

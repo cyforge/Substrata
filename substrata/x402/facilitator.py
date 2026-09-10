@@ -186,7 +186,10 @@ class UrllibTransport:
         except urllib.error.HTTPError as error:
             # Redirect responses are returned for normal status handling; no location is followed.
             if 300 <= error.code < 400:
-                return TransportResponse(error.code, b"", _collect_http_headers(error.headers))
+                try:
+                    return TransportResponse(error.code, b"", _collect_http_headers(error.headers))
+                finally:
+                    error.close()
             try:
                 _check_declared_body_length(error.headers, max_response_bytes, error.code)
                 raw = error.read(max_response_bytes + 1)
