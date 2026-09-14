@@ -40,4 +40,12 @@ A paid retry with no usable receipt, an invalid receipt, or an unknown transport
 
 Supply an `AuditLog` with `audit_log=` to record policy denials, reservations, authorization readiness, settlement, and uncertain outcomes. The client never writes signed payloads, secret seeds, or raw exception text to the audit log. Caller-owned ledger and audit objects remain open when the client closes.
 
-The client uses synchronous I/O. Async applications can call it with `await asyncio.to_thread(client.get, url)` so the event loop stays available. The HTTP transport is injectable for offline integrations and tests.
+The client uses synchronous I/O. Wrap it with `AsyncBuyerClient` when an async application needs to keep its event loop available. The wrapper runs calls in worker threads and closes the wrapped client when its async context exits. The HTTP transport is injectable for offline integrations and tests.
+
+```python
+from substrata.client import AsyncBuyerClient, BuyerClient
+
+sync_client = BuyerClient(policy, signer, ledger_path="payments.sqlite3")
+async with AsyncBuyerClient(sync_client) as client:
+    response = await client.get("https://api.example.test/data")
+```

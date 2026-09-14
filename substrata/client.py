@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import http.client
 import json
@@ -474,6 +475,84 @@ class BuyerClient:
     def _ensure_open(self) -> None:
         if self._closed:
             raise RuntimeError("BuyerClient is closed")
+
+
+class AsyncBuyerClient:
+    """Async facade that runs synchronous buyer I/O in worker threads."""
+
+    def __init__(self, client: BuyerClient) -> None:
+        if not isinstance(client, BuyerClient):
+            raise ValidationError("AsyncBuyerClient requires a BuyerClient")
+        client._ensure_open()
+        self.client = client
+        self._closed = False
+
+    async def get(
+        self,
+        url: str,
+        *,
+        headers: Mapping[str, str] | None = None,
+        request_id: str | None = None,
+    ) -> ClientResponse:
+        self._ensure_open()
+        return await asyncio.to_thread(self.client.get, url, headers=headers, request_id=request_id)
+
+    async def post(
+        self,
+        url: str,
+        body: bytes,
+        *,
+        headers: Mapping[str, str] | None = None,
+        request_id: str | None = None,
+        replayable: bool = False,
+    ) -> ClientResponse:
+        self._ensure_open()
+        return await asyncio.to_thread(
+            self.client.post,
+            url,
+            body,
+            headers=headers,
+            request_id=request_id,
+            replayable=replayable,
+        )
+
+    async def request(
+        self,
+        method: str,
+        url: str,
+        *,
+        body: bytes | None = None,
+        headers: Mapping[str, str] | None = None,
+        request_id: str | None = None,
+        replayable: bool = False,
+    ) -> ClientResponse:
+        self._ensure_open()
+        return await asyncio.to_thread(
+            self.client.request,
+            method,
+            url,
+            body=body,
+            headers=headers,
+            request_id=request_id,
+            replayable=replayable,
+        )
+
+    async def close(self) -> None:
+        if not self._closed:
+            await asyncio.to_thread(self.client.close)
+            self._closed = True
+
+    async def __aenter__(self) -> AsyncBuyerClient:
+        self._ensure_open()
+        return self
+
+    async def __aexit__(self, exc_type: object, exc: object, traceback: object) -> None:
+        await self.close()
+
+    def _ensure_open(self) -> None:
+        if self._closed:
+            raise RuntimeError("AsyncBuyerClient is closed")
+        self.client._ensure_open()
 
 
 def _offer_supported(signer: object, offer: PaymentRequirements) -> bool:

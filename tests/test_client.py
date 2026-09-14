@@ -471,3 +471,40 @@ def test_query_credentials_are_not_saved_in_ledger_or_audit(tmp_path: Path):
     assert "private-query-value" not in str(ledger.get("query-is-private").metadata)
     assert "private-query-value" not in audit.export_jsonl()
     assert "api_key=" not in audit.export_jsonl()
+
+
+def test_async_client_runs_sync_transport_in_worker_thread():
+    import asyncio
+    import threading
+    import time
+
+    from substrata.client import AsyncBuyerClient
+
+    class SlowTransport(QueueTransport):
+        def send(self, method, url, headers, body, timeout, max_response_bytes):
+            time.sleep(0.05)
+            return super().send(method, url, headers, body, timeout, max_response_bytes)
+
+    async def exercise():
+        pair = create_local_demo_pair()
+        transport = SlowTransport([HTTPResponse(200, {}, b"ok")])
+        sync_client = BuyerClient(
+            POLICY, pair.signer, allow_ephemeral_ledger=True, transport=transport
+        )
+        async_client = AsyncBuyerClient(sync_client)
+        on_loop = threading.get_ident()
+        ticked = False
+
+        async def tick():
+            nonlocal ticked
+            await asyncio.sleep(0)
+            ticked = True
+
+        result, _ = await asyncio.gather(async_client.get(URL), tick())
+        assert ticked
+        assert result.body == b"ok"
+        assert threading.get_ident() == on_loop
+        await async_client.close()
+        assert sync_client._closed
+
+    asyncio.run(exercise())
