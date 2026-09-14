@@ -1,5 +1,5 @@
 """Optional payment signer integrations."""
 
-from .stellar import StellarAuthSigner
+from substrata.integrations.stellar import StellarAuthSigner
 
 __all__ = ["StellarAuthSigner"]

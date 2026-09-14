@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import math
 from typing import TYPE_CHECKING
+from urllib.parse import urlsplit
 
 from substrata.errors import ValidationError
 from substrata.x402.models import PaymentPayload, PaymentRequirements, ResourceInfo
@@ -12,6 +13,7 @@ from substrata.x402.models import PaymentPayload, PaymentRequirements, ResourceI
 if TYPE_CHECKING:
     from stellar_sdk.client.base_sync_client import BaseSyncClient
     from stellar_sdk.keypair import Keypair
+    from stellar_sdk.xdr import TransactionEnvelope
 
 
 class StellarAuthSigner:
@@ -32,10 +34,7 @@ class StellarAuthSigner:
     ) -> None:
         if not isinstance(secret_seed, str) or not secret_seed:
             raise ValidationError("Stellar secret seed is required")
-        if not isinstance(rpc_url, str) or not rpc_url.startswith(
-            ("https://", "http://localhost", "http://127.0.0.1")
-        ):
-            raise ValidationError("Soroban RPC URL must use HTTPS except loopback development")
+        _validate_rpc_url(rpc_url)
         if network not in {"stellar:testnet", "stellar:pubnet"}:
             raise ValidationError("Stellar signer supports testnet or pubnet")
         if type(ledger_seconds) is not int or not 1 <= ledger_seconds <= 60:
@@ -66,7 +65,7 @@ class StellarAuthSigner:
         if not isinstance(resource, ResourceInfo):
             raise ValidationError("resource must be ResourceInfo")
         try:
-            from stellar_sdk import Address, scval
+            from stellar_sdk import scval
             from stellar_sdk.client.base_sync_client import BaseSyncClient
             from stellar_sdk.contract import ContractClient
             from stellar_sdk.network import Network
@@ -106,14 +105,14 @@ class StellarAuthSigner:
                 restore=False,
                 use_upgraded_auth=True,
             )
-            decimals = decimals_call.result
+            decimals = decimals_call.result()
             if type(decimals) is not int or decimals != 7:
                 raise ValidationError("Stellar token precision must be exactly seven decimals")
             assembled = client.invoke(
                 "transfer",
                 parameters=[
-                    Address(keypair.public_key).to_scval(),
-                    Address(requirements.pay_to).to_scval(),
+                    scval.to_address(keypair.public_key),
+                    scval.to_address(requirements.pay_to),
                     scval.to_int128(atomic_amount),
                 ],
                 simulate=True,
@@ -144,11 +143,8 @@ class StellarAuthSigner:
                 raise ValidationError("Stellar SDK returned noncanonical transaction XDR")
         except ValidationError:
             raise
-        except Exception as exc:
-            # SDK exceptions may include RPC endpoint details or signed material.
-            raise ValidationError(
-                f"Stellar authorization simulation or signing failed: {exc!r}"
-            ) from exc
+        except Exception:
+            raise ValidationError("Stellar authorization simulation or signing failed") from None
         return PaymentPayload(
             accepted=requirements,
             resource=resource,
@@ -171,7 +167,7 @@ class StellarAuthSigner:
 
 
 def _validate_transfer_envelope(
-    envelope: object,
+    envelope: TransactionEnvelope,
     requirements: PaymentRequirements,
     payer: str,
     *,
@@ -255,6 +251,49 @@ def _validate_transfer_envelope(
         raise
     except Exception:
         raise ValidationError("Stellar SDK returned an invalid authorization invocation") from None
+
+
+def _validate_rpc_url(value: str) -> None:
+    if (
+        not isinstance(value, str)
+        or len(value) > 2048
+        or any(ord(char) <= 0x20 or ord(char) == 0x7F for char in value)
+        or "\\" in value
+    ):
+        raise ValidationError("Soroban RPC URL must be a valid HTTPS URL or loopback HTTP URL")
+    try:
+        parts = urlsplit(value)
+        port = parts.port
+    except ValueError:
+        raise ValidationError(
+            "Soroban RPC URL must be a valid HTTPS URL or loopback HTTP URL"
+        ) from None
+    host = parts.hostname
+    if (
+        not host
+        or parts.username is not None
+        or parts.password is not None
+        or parts.fragment
+        or parts.netloc.endswith(":")
+        or (port is not None and not 1 <= port <= 65535)
+    ):
+        raise ValidationError("Soroban RPC URL must be a valid HTTPS URL or loopback HTTP URL")
+    if parts.scheme == "https":
+        return
+    if parts.scheme == "http" and _is_loopback_host(host):
+        return
+    raise ValidationError("Soroban RPC URL must use HTTPS except loopback development")
+
+
+def _is_loopback_host(host: str) -> bool:
+    if host.lower() == "localhost":
+        return True
+    try:
+        import ipaddress
+
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
 
 
 __all__ = ["StellarAuthSigner"]
