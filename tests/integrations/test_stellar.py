@@ -152,6 +152,17 @@ def test_signer_supports_only_sponsored_exact_offer_on_configured_network():
     assert signer.supports(supported)
     assert not signer.supports(unsupported)
     assert not signer.supports(
+        PaymentRequirements(
+            "exact",
+            "stellar:testnet",
+            "1",
+            "XLM",
+            payer.public_key,
+            10,
+            {"areFeesSponsored": True},
+        )
+    )
+    assert not signer.supports(
         PaymentRequirements("substrata-demo", "stellar:testnet", "1", "XLM", payer.public_key, 10)
     )
 

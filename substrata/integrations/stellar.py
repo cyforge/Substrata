@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import math
+import re
 from typing import TYPE_CHECKING
 from urllib.parse import urlsplit
 
@@ -57,6 +58,7 @@ class StellarAuthSigner:
             and requirements.network == self.network
             and requirements.extra is not None
             and requirements.extra.get("areFeesSponsored") is True
+            and re.fullmatch(r"C[A-Z2-7]{55}", requirements.asset) is not None
         )
 
     def sign(self, requirements: PaymentRequirements, resource: ResourceInfo) -> PaymentPayload:
