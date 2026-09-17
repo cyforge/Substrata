@@ -86,6 +86,30 @@ def test_sdk_invocation_is_exact_transfer_and_auth_is_payer_bound():
     _validate_transfer_envelope(envelope, requirements, payer.public_key)
 
 
+def test_sdk_invocation_rejects_payer_as_transaction_source():
+    payer, requirements, _, envelope = _signed_transfer()
+    envelope.v1.tx.source_account = Keypair.from_public_key(payer.public_key).xdr_muxed_account()
+    with pytest.raises(ValidationError, match="null account"):
+        _validate_transfer_envelope(envelope, requirements, payer.public_key)
+
+
+def test_sdk_invocation_rejects_operation_source_override():
+    payer, requirements, _, envelope = _signed_transfer()
+    envelope.v1.tx.operations[0].source_account = Keypair.from_public_key(
+        payer.public_key
+    ).xdr_muxed_account()
+    with pytest.raises(ValidationError, match="cannot override"):
+        _validate_transfer_envelope(envelope, requirements, payer.public_key)
+
+
+def test_sdk_invocation_rejects_nested_auth_invocation():
+    payer, requirements, _, envelope = _signed_transfer()
+    auth_entry = envelope.v1.tx.operations[0].body.invoke_host_function_op.auth[0]
+    auth_entry.root_invocation.sub_invocations.append(auth_entry.root_invocation)
+    with pytest.raises(ValidationError, match="sub-invocations"):
+        _validate_transfer_envelope(envelope, requirements, payer.public_key)
+
+
 def test_sdk_invocation_rejects_wrong_amount_before_signing():
     payer, requirements, _, envelope = _signed_transfer()
     wrong = PaymentRequirements(
@@ -330,6 +354,7 @@ def test_public_signer_builds_and_signs_auth_xdr_with_mocked_rpc():
     entry = operation.auth[0]
     credentials = entry.credentials.address_v2
     assert credentials is not None
+    assert credentials.signature_expiration_ledger.uint32 == 502
     signature_map = scval.from_map(scval.from_vec(credentials.signature)[0])
     signature = scval.from_bytes(signature_map[scval.to_symbol("signature")])
     preimage = build_authorization_preimage(

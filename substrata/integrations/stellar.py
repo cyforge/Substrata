@@ -180,14 +180,17 @@ def _validate_transfer_envelope(
 
         transaction = envelope.v1.tx if envelope.v1 is not None else envelope.v0.tx
         source = transaction.source_account
-        if source.type == xdr.CryptoKeyType.KEY_TYPE_ED25519:
-            source_address = StrKey.encode_ed25519_public_key(source.ed25519.uint256)
-            if source_address == payer:
-                raise ValidationError("Stellar transaction source cannot be the payer")
+        if source.type != xdr.CryptoKeyType.KEY_TYPE_ED25519:
+            raise ValidationError("Stellar transaction source must be the null account")
+        source_address = StrKey.encode_ed25519_public_key(source.ed25519.uint256)
+        if source_address != "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF":
+            raise ValidationError("Stellar transaction source must be the null account")
         operations = transaction.operations
         if len(operations) != 1:
             raise ValidationError("Stellar invocation must contain exactly one operation")
         operation = operations[0]
+        if operation.source_account is not None:
+            raise ValidationError("Stellar operation cannot override the transaction source")
         if operation.body.type.name != "INVOKE_HOST_FUNCTION":
             raise ValidationError("Stellar operation must invoke a Soroban host function")
         invoke = operation.body.invoke_host_function_op
