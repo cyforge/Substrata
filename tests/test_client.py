@@ -508,3 +508,59 @@ def test_async_client_runs_sync_transport_in_worker_thread():
         assert sync_client._closed
 
     asyncio.run(exercise())
+
+
+def test_file_ledger_keeps_budget_across_client_recreation(tmp_path: Path):
+    pair = create_local_demo_pair()
+    path = tmp_path / "persistent-buyer.sqlite"
+    exact_budget = SpendPolicy(
+        allowed_networks=POLICY.allowed_networks,
+        allowed_recipients=POLICY.allowed_recipients,
+        allowed_assets=POLICY.allowed_assets,
+        total_limit="1.25",
+        allowed_origins=POLICY.allowed_origins,
+    )
+    payload = pair.signer.sign(OFFER, RESOURCE)
+    receipt = pair.facilitator.settle(payload, OFFER)
+    first_transport = QueueTransport(
+        [
+            HTTPResponse(
+                402, {"payment-required": encode_payment_required_header(challenge())}, b"pay"
+            ),
+            HTTPResponse(200, {"payment-response": encode_payment_response_header(receipt)}, b"ok"),
+        ]
+    )
+    first = BuyerClient(
+        exact_budget,
+        pair.signer,
+        ledger_path=str(path),
+        transport=first_transport,
+    )
+    first_result = first.get(URL, request_id="persistent-first")
+    assert first_result.payment is not None
+    first.close()
+
+    second_transport = QueueTransport(
+        [
+            HTTPResponse(
+                402, {"payment-required": encode_payment_required_header(challenge())}, b"pay"
+            ),
+        ]
+    )
+    second = BuyerClient(
+        exact_budget,
+        pair.signer,
+        ledger_path=str(path),
+        transport=second_transport,
+    )
+    second_result = second.get(URL, request_id="persistent-second")
+    second.close()
+
+    persisted = Ledger(str(path))
+    try:
+        assert second_result.status_code == 402 and second_result.payment is None
+        assert len(second_transport.calls) == 1
+        assert persisted.get("persistent-first").status is LedgerStatus.SETTLED
+        assert persisted.get("persistent-second") is None
+    finally:
+        persisted.close()

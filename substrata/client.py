@@ -293,9 +293,7 @@ class BuyerClient:
             denied_request, denied_decision = candidate_request, candidate_decision
         if requirement is None or request is None:
             if denied_request is not None and denied_decision is not None:
-                self._audit(
-                    "payment_denied", denied_request, reason=denied_decision.reason_code.value
-                )
+                self._audit("payment_denied", denied_request, reason=denied_decision.reason_code)
                 return ClientResponse(402, {}, _policy_error(denied_decision))
             raise ValidationError("no payment offer supported by configured signer and policy")
         fingerprint = _fingerprint(method, url, body, requirement, challenge.resource)
@@ -777,7 +775,7 @@ def _maybe_header(headers: Mapping[str, str], name: str) -> str | None:
 
 def _policy_error(decision: PolicyDecision) -> bytes:
     return json.dumps(
-        {"error": "payment denied by local policy", "reason": decision.reason_code.value}
+        {"error": "payment denied by local policy", "reason": decision.reason_code}
     ).encode()
 
 
