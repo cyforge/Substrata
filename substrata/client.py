@@ -259,6 +259,8 @@ class BuyerClient:
         origin = origin_from_url(url)
         if origin_from_url(challenge.resource.url) != origin or challenge.resource.url != url:
             raise ValidationError("payment resource must exactly match requested URL")
+        if len(challenge.accepts) > 32:
+            raise ValidationError("payment challenge contains too many offers")
         requirement: PaymentRequirements | None = None
         request: PaymentRequest | None = None
         denied_request: PaymentRequest | None = None
@@ -675,18 +677,24 @@ def _headers(headers: Mapping[str, str] | None) -> dict[str, str]:
     if not isinstance(headers, Mapping):
         raise ValidationError("headers must be a mapping")
     result: dict[str, str] = {}
+    if len(headers) > 100:
+        raise ValidationError("request contains too many headers")
+    total_size = 0
     for key, value in headers.items():
         if (
             not isinstance(key, str)
             or not isinstance(value, str)
             or not key
+            or not key.isascii()
             or any(ord(c) < 33 or c in ":\r\n" for c in key)
-            or "\r" in value
-            or "\n" in value
+            or any((ord(c) < 32 and c != "\t") or ord(c) == 127 for c in value)
         ):
             raise ValidationError("invalid HTTP header")
         if key.lower() in {"host", "content-length", "transfer-encoding", "connection"}:
             raise ValidationError(f"caller cannot set {key} header")
+        total_size += len(key.encode("ascii")) + len(value.encode("utf-8"))
+        if total_size > 65_536:
+            raise ValidationError("request headers exceed configured size limit")
         result[key] = value
     return result
 

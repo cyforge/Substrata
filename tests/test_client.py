@@ -564,3 +564,31 @@ def test_file_ledger_keeps_budget_across_client_recreation(tmp_path: Path):
         assert persisted.get("persistent-second") is None
     finally:
         persisted.close()
+
+
+def test_challenge_with_too_many_offers_is_rejected_before_reservation():
+    pair = create_local_demo_pair()
+    many_offers = PaymentRequired(resource=RESOURCE, accepts=(OFFER,) * 33)
+    transport = QueueTransport(
+        [
+            HTTPResponse(
+                402, {"payment-required": encode_payment_required_header(many_offers)}, b"pay"
+            ),
+        ]
+    )
+    ledger = Ledger(":memory:")
+    client = BuyerClient(POLICY, pair.signer, ledger=ledger, transport=transport)
+    with pytest.raises(ValidationError, match="too many offers"):
+        client.get(URL, request_id="too-many-offers")
+    assert ledger.get("too-many-offers") is None
+
+
+def test_invalid_caller_headers_are_rejected_before_transport():
+    pair = create_local_demo_pair()
+    transport = QueueTransport([])
+    client = BuyerClient(POLICY, pair.signer, ledger=Ledger(":memory:"), transport=transport)
+    with pytest.raises(ValidationError, match="invalid HTTP header"):
+        client.get(URL, headers={"X-Debug": "private\x00value"})
+    with pytest.raises(ValidationError, match="too many headers"):
+        client.get(URL, headers={f"X-{index}": "v" for index in range(101)})
+    assert transport.calls == []
