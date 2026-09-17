@@ -214,8 +214,8 @@ def _validate_transfer_envelope(
         if scval.from_int128(args.args[2]) != int(requirements.amount):
             raise ValidationError("Stellar transfer amount does not match offer")
         auth_entries = invoke.auth
-        if not auth_entries:
-            raise ValidationError("Stellar simulation returned no authorization entries")
+        if len(auth_entries) != 1:
+            raise ValidationError("Stellar transfer must contain exactly one authorization entry")
         for entry in auth_entries:
             credentials = entry.credentials
             if credentials.type.name not in {

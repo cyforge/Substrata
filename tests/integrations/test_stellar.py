@@ -102,6 +102,14 @@ def test_sdk_invocation_rejects_operation_source_override():
         _validate_transfer_envelope(envelope, requirements, payer.public_key)
 
 
+def test_sdk_invocation_rejects_multiple_auth_entries():
+    payer, requirements, _, envelope = _signed_transfer()
+    operation = envelope.v1.tx.operations[0].body.invoke_host_function_op
+    operation.auth.append(operation.auth[0])
+    with pytest.raises(ValidationError, match="exactly one authorization"):
+        _validate_transfer_envelope(envelope, requirements, payer.public_key)
+
+
 def test_sdk_invocation_rejects_nested_auth_invocation():
     payer, requirements, _, envelope = _signed_transfer()
     auth_entry = envelope.v1.tx.operations[0].body.invoke_host_function_op.auth[0]
