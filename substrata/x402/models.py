@@ -7,7 +7,7 @@ import binascii
 import re
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import Mapping, TypeAlias, cast
+from typing import Literal, Mapping, TypeAlias, cast
 from urllib.parse import urlsplit
 
 from substrata.errors import ValidationError
@@ -19,6 +19,8 @@ FrozenJsonValue: TypeAlias = (
     JsonScalar | tuple["FrozenJsonValue", ...] | Mapping[str, "FrozenJsonValue"]
 )
 FrozenJsonObject: TypeAlias = Mapping[str, FrozenJsonValue]
+PaymentFlow: TypeAlias = Literal["authorization", "upfront", "escrow"]
+AssetTransferMethod: TypeAlias = str
 MAX_STELLAR_XDR_BASE64_CHARS = 1_398_104
 
 
@@ -28,11 +30,21 @@ def _object(value: object, name: str) -> Mapping[str, object]:
     return cast(Mapping[str, object], value)
 
 
+def _valid_unicode(value: str, name: str) -> str:
+    try:
+        value.encode("utf-8", errors="strict")
+    except UnicodeEncodeError as exc:
+        raise ValidationError(f"{name} must contain valid Unicode") from exc
+    return value
+
+
 def _freeze(value: object, name: str, depth: int = 0) -> FrozenJsonValue:
     if depth > 64:
         raise ValidationError(f"{name} exceeds nesting limit")
-    if value is None or type(value) in (bool, str):
+    if value is None or type(value) is bool:
         return cast(FrozenJsonValue, value)
+    if type(value) is str:
+        return _valid_unicode(value, name)
     if type(value) is int:
         if abs(value) > (1 << 63) - 1:
             raise ValidationError(f"{name} contains oversized integer")
@@ -48,6 +60,8 @@ def _freeze(value: object, name: str, depth: int = 0) -> FrozenJsonValue:
     if isinstance(value, Mapping):
         if any(not isinstance(key, str) for key in value):
             raise ValidationError(f"{name} keys must be strings")
+        for key in value:
+            _valid_unicode(key, name)
         return MappingProxyType(
             {key: _freeze(item, name, depth + 1) for key, item in value.items()}
         )
@@ -131,7 +145,7 @@ def _validate_stellar_payload(payload: FrozenJsonObject) -> None:
 def _string(value: object, name: str, *, nonempty: bool = True) -> str:
     if not isinstance(value, str) or (nonempty and not value):
         raise ValidationError(f"{name} must be a{' non-empty' if nonempty else ''} string")
-    return value
+    return _valid_unicode(value, name)
 
 
 def _version(value: object) -> int:
@@ -148,7 +162,7 @@ def _optional_object(data: Mapping[str, object], key: str) -> Mapping[str, objec
 
 @dataclass(frozen=True, slots=True)
 class ResourceInfo:
-    url: str
+    url: str = field(repr=False)
     description: str | None = None
     mime_type: str | None = None
     service_name: str | None = None
@@ -241,7 +255,7 @@ class PaymentRequirements:
     asset: str
     pay_to: str
     max_timeout_seconds: int
-    extra: FrozenJsonObject | None = None
+    extra: FrozenJsonObject | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
         for name in ("scheme", "network", "asset", "pay_to"):
@@ -266,6 +280,20 @@ class PaymentRequirements:
             raise ValidationError("maxTimeoutSeconds must be a positive 32-bit integer")
         if self.extra is not None:
             object.__setattr__(self, "extra", _freeze_object(self.extra, "extra"))
+            if "assetTransferMethod" in self.extra:
+                method = self.extra["assetTransferMethod"]
+                if not isinstance(method, str) or not method:
+                    raise ValidationError("extra.assetTransferMethod must be a non-empty string")
+            if "paymentFlow" in self.extra:
+                flow = self.extra["paymentFlow"]
+                if not isinstance(flow, str) or flow not in {
+                    "authorization",
+                    "upfront",
+                    "escrow",
+                }:
+                    raise ValidationError(
+                        "extra.paymentFlow must be authorization, upfront, or escrow"
+                    )
         if self.scheme == "exact" and self.network.startswith("stellar:"):
             if self.extra is None or self.extra.get("areFeesSponsored") is not True:
                 raise ValidationError("exact Stellar requirements must enable fee sponsorship")
@@ -302,8 +330,32 @@ class PaymentRequirements:
             "maxTimeoutSeconds": self.max_timeout_seconds,
         }
         if self.extra is not None:
-            data["extra"] = cast(JsonObject, _thaw(cast(JsonValue, self.extra)))
+            data["extra"] = cast(JsonObject, _thaw(cast(FrozenJsonValue, self.extra)))
         return data
+
+    @property
+    def amount_atomic(self) -> int:
+        return int(self.amount)
+
+    @property
+    def network_namespace(self) -> str:
+        return self.network.partition(":")[0]
+
+    @property
+    def network_reference(self) -> str:
+        return self.network.partition(":")[2]
+
+    @property
+    def payment_flow(self) -> PaymentFlow | None:
+        if self.extra is None:
+            return None
+        return cast(PaymentFlow | None, self.extra.get("paymentFlow"))
+
+    @property
+    def asset_transfer_method(self) -> AssetTransferMethod | None:
+        if self.extra is None:
+            return None
+        return cast(AssetTransferMethod | None, self.extra.get("assetTransferMethod"))
 
 
 @dataclass(frozen=True, slots=True)
@@ -311,7 +363,7 @@ class PaymentRequired:
     resource: ResourceInfo
     accepts: tuple[PaymentRequirements, ...]
     error: str | None = None
-    extensions: FrozenJsonObject = field(default_factory=dict)
+    extensions: FrozenJsonObject = field(default_factory=dict, repr=False)
     x402_version: int = 2
 
     def __post_init__(self) -> None:
@@ -361,13 +413,44 @@ class PaymentRequired:
             data["extensions"] = cast(JsonObject, _thaw(cast(FrozenJsonValue, self.extensions)))
         return data
 
+    def offers_for(
+        self,
+        scheme: str,
+        network: str,
+        *,
+        asset_transfer_method: str | None = None,
+        payment_flow: PaymentFlow | None = None,
+    ) -> tuple[PaymentRequirements, ...]:
+        """Return offered methods matching explicit scheme and network criteria."""
+        if not isinstance(scheme, str) or not isinstance(network, str):
+            return ()
+        if asset_transfer_method is not None and not isinstance(asset_transfer_method, str):
+            return ()
+        if payment_flow is not None:
+            if not isinstance(payment_flow, str) or payment_flow not in {
+                "authorization",
+                "upfront",
+                "escrow",
+            }:
+                return ()
+        return tuple(
+            item
+            for item in self.accepts
+            if item.scheme == scheme
+            and item.network == network
+            and (
+                asset_transfer_method is None or item.asset_transfer_method == asset_transfer_method
+            )
+            and (payment_flow is None or item.payment_flow == payment_flow)
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class PaymentPayload:
     accepted: PaymentRequirements
     payload: FrozenJsonObject = field(repr=False)
     resource: ResourceInfo | None = None
-    extensions: FrozenJsonObject = field(default_factory=dict)
+    extensions: FrozenJsonObject = field(default_factory=dict, repr=False)
     x402_version: int = 2
 
     def __post_init__(self) -> None:
@@ -408,6 +491,15 @@ class PaymentPayload:
         if self.extensions:
             data["extensions"] = cast(JsonObject, _thaw(cast(FrozenJsonValue, self.extensions)))
         return data
+
+    @property
+    def stellar_transaction_xdr(self) -> bytes:
+        """Return decoded XDR for exact Stellar payloads."""
+        if self.accepted.scheme != "exact" or not self.accepted.network.startswith("stellar:"):
+            raise ValidationError("payload does not contain an exact Stellar transaction")
+        transaction = self.payload["transaction"]
+        assert isinstance(transaction, str)
+        return base64.b64decode(transaction.encode("ascii"), validate=True)
 
 
 @dataclass(frozen=True, slots=True)
@@ -451,8 +543,8 @@ class VerifyResponse:
     invalid_reason: str | None = None
     invalid_message: str | None = None
     payer: str | None = None
-    extensions: FrozenJsonObject = field(default_factory=dict)
-    extra: FrozenJsonObject = field(default_factory=dict)
+    extensions: FrozenJsonObject = field(default_factory=dict, repr=False)
+    extra: FrozenJsonObject = field(default_factory=dict, repr=False)
     extension_responses: FrozenJsonObject = field(default_factory=dict, repr=False)
 
     def __post_init__(self) -> None:
@@ -462,6 +554,8 @@ class VerifyResponse:
             value = getattr(self, name)
             if value is not None:
                 _string(value, name, nonempty=False)
+        if self.is_valid and (self.invalid_reason is not None or self.invalid_message is not None):
+            raise ValidationError("valid verify response cannot include invalid reason or message")
         object.__setattr__(self, "extensions", _freeze_object(self.extensions, "extensions"))
         object.__setattr__(self, "extra", _freeze_object(self.extra, "extra"))
         object.__setattr__(
@@ -519,7 +613,7 @@ class SettlementResponse:
     error_message: str | None = None
     payer: str | None = None
     amount: str | None = None
-    extensions: FrozenJsonObject = field(default_factory=dict)
+    extensions: FrozenJsonObject = field(default_factory=dict, repr=False)
     extension_responses: FrozenJsonObject = field(default_factory=dict, repr=False)
 
     def __post_init__(self) -> None:
@@ -532,8 +626,24 @@ class SettlementResponse:
             value = getattr(self, name)
             if value is not None:
                 _string(value, name, nonempty=False)
+        if self.success and (self.error_reason is not None or self.error_message is not None):
+            raise ValidationError("successful settlement cannot include error reason or message")
         if self.amount is not None:
             _string(self.amount, "amount", nonempty=False)
+            # Empty amount is used by valid offchain schemes with no per-call transfer.
+            if self.amount and (
+                not self.amount.isascii()
+                or not self.amount.isdigit()
+                or len(self.amount) > 78
+                or int(self.amount) > (1 << 256) - 1
+            ):
+                raise ValidationError("amount must be an atomic-unit digit string")
+            if (
+                self.amount
+                and self.network.startswith("stellar:")
+                and int(self.amount) > (1 << 127) - 1
+            ):
+                raise ValidationError("Stellar amount exceeds signed 128-bit range")
         if self.error_reason == "settlement_pending" and not self.transaction:
             raise ValidationError("settlement_pending requires transaction hash")
         object.__setattr__(self, "extensions", _freeze_object(self.extensions, "extensions"))
@@ -598,13 +708,13 @@ class SettlementResponse:
 
 
 __all__ = [
+    "AssetTransferMethod",
     "FrozenJsonObject",
     "FrozenJsonValue",
     "FacilitatorPaymentRequest",
     "JsonObject",
     "JsonValue",
-    "JsonObject",
-    "JsonValue",
+    "PaymentFlow",
     "PaymentPayload",
     "PaymentRequired",
     "PaymentRequirements",

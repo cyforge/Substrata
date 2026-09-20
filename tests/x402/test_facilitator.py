@@ -87,6 +87,8 @@ def test_supported_decodes_kinds() -> None:
     assert result.kinds == (
         SupportedKind(2, "exact", "stellar:testnet", {"areFeesSponsored": True}),
     )
+    assert result.supports("exact", "stellar:testnet")
+    assert not result.supports("exact", "stellar:pubnet")
     assert result.extensions == ("bazaar",)
     assert result.signers == {"stellar:*": ("GABC",)}
     assert result.to_dict()["extensions"] == ["bazaar"]
@@ -239,6 +241,13 @@ def test_facilitator_url_parser_rejects_malformed_or_ambiguous_urls(url: str) ->
 def test_facilitator_rejects_header_injection_in_api_key() -> None:
     with pytest.raises(ValidationError):
         HTTPFacilitator("https://facilitator.example", api_key="token\r\nInjected: yes")
+    with pytest.raises(ValidationError, match="8192"):
+        HTTPFacilitator("https://facilitator.example", api_key="x" * 8193)
+
+
+def test_facilitator_rejects_invalid_transport_object() -> None:
+    with pytest.raises(ValidationError, match="request method"):
+        HTTPFacilitator("https://facilitator.example", transport=object())  # type: ignore[arg-type]
 
 
 def test_supported_response_preserves_immutable_extra_and_rejects_bad_network() -> None:
@@ -267,3 +276,194 @@ def test_supported_response_preserves_immutable_extra_and_rejects_bad_network() 
                 "signers": {},
             }
         )
+
+
+def test_transport_response_header_metadata_is_bounded_and_unambiguous() -> None:
+    with pytest.raises(ValidationError, match="size limit"):
+        TransportResponse(200, b"", {"x-large": "x" * 1_500_000})
+    with pytest.raises(ValidationError, match="too many"):
+        TransportResponse(200, b"", {f"x-{index}": "v" for index in range(129)})
+    with pytest.raises(ValidationError, match="invalid header value"):
+        TransportResponse(200, b"", {"x-test": "bad\r\nInjected: yes"})
+    with pytest.raises(ValidationError, match="duplicate extension"):
+        TransportResponse(
+            200,
+            b"",
+            {
+                "Extension-Responses": "e30=",
+                "extension-responses": "e30=",
+            },
+        )
+
+
+def test_default_transport_rejects_duplicate_extension_headers() -> None:
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    from threading import Thread
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:
+            self.rfile.read(int(self.headers.get("Content-Length", "0")))
+            self.send_response(200)
+            self.send_header("EXTENSION-RESPONSES", "e30=")
+            self.send_header("EXTENSION-RESPONSES", "e30=")
+            self.send_header("Content-Length", "15")
+            self.end_headers()
+            self.wfile.write(b'{"isValid":true}')
+
+        def log_message(self, format: str, *args: object) -> None:
+            return
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        client = HTTPFacilitator(f"http://127.0.0.1:{server.server_port}")
+        with pytest.raises(FacilitatorError, match="duplicate extension"):
+            client.verify(PAYLOAD, REQUIREMENTS)
+    finally:
+        server.shutdown()
+        thread.join(timeout=2)
+        server.server_close()
+
+
+def test_injected_transport_errors_are_sanitized() -> None:
+    secret = "private-facilitator-token"
+
+    class RaisingTransport:
+        def request(self, *args, **kwargs):
+            raise FacilitatorError(f"request failed for {secret}")
+
+    client = HTTPFacilitator(
+        "https://facilitator.example",
+        api_key=secret,
+        transport=RaisingTransport(),  # type: ignore[arg-type]
+    )
+    with pytest.raises(FacilitatorError) as raised:
+        client.verify(PAYLOAD, REQUIREMENTS)
+    assert str(raised.value) == "facilitator transport failed"
+    assert secret not in str(raised.value)
+    assert raised.value.__cause__ is None
+
+
+def test_default_transport_rejects_oversized_declared_body_before_reading() -> None:
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    from threading import Thread
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            self.send_response(200)
+            self.send_header("Content-Length", str(1_048_577))
+            self.end_headers()
+
+        def log_message(self, format: str, *args: object) -> None:
+            return
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        client = HTTPFacilitator(
+            f"http://127.0.0.1:{server.server_port}",
+            max_response_bytes=1024,
+        )
+        with pytest.raises(FacilitatorError, match="size limit"):
+            client.supported()
+    finally:
+        server.shutdown()
+        thread.join(timeout=2)
+        server.server_close()
+
+
+def test_default_transport_rejects_ambiguous_content_length() -> None:
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    from threading import Thread
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            self.send_response(200)
+            self.send_header("Content-Length", "1")
+            self.send_header("Content-Length", "1")
+            self.end_headers()
+            self.wfile.write(b"x")
+
+        def log_message(self, format: str, *args: object) -> None:
+            return
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        client = HTTPFacilitator(f"http://127.0.0.1:{server.server_port}")
+        with pytest.raises(FacilitatorError, match="invalid Content-Length"):
+            client.supported()
+    finally:
+        server.shutdown()
+        thread.join(timeout=2)
+        server.server_close()
+
+
+def test_transport_response_validates_status_and_body_types() -> None:
+    for status in (True, 99, 600):
+        with pytest.raises(ValidationError):
+            TransportResponse(status, b"")  # type: ignore[arg-type]
+    with pytest.raises(ValidationError, match="body"):
+        TransportResponse(200, "not bytes")  # type: ignore[arg-type]
+    with pytest.raises(ValidationError, match="size limit"):
+        TransportResponse(200, b"x" * 1_048_577)
+
+
+@pytest.mark.parametrize("duplicate", [False, True])
+def test_redirect_error_stream_closes_without_following(duplicate: bool) -> None:
+    from email.message import Message
+    from io import BytesIO
+    from urllib.error import HTTPError
+
+    from substrata.x402.facilitator import UrllibTransport
+
+    headers = Message()
+    headers["Location"] = "/elsewhere"
+    if duplicate:
+        headers["EXTENSION-RESPONSES"] = "e30="
+        headers["extension-responses"] = "e30="
+    response_body = BytesIO(b"redirect body")
+    error = HTTPError(
+        "https://facilitator.example/supported",
+        302,
+        "Found",
+        headers,
+        response_body,
+    )
+
+    class Opener:
+        calls = 0
+
+        def open(self, *args, **kwargs):
+            self.calls += 1
+            raise error
+
+    transport = UrllibTransport()
+    opener = Opener()
+    transport._opener = opener  # type: ignore[assignment]
+
+    if duplicate:
+        with pytest.raises(FacilitatorError, match="duplicate extension"):
+            transport.request(
+                "GET",
+                "https://facilitator.example/supported",
+                headers={},
+                body=None,
+                timeout=1,
+                max_response_bytes=1024,
+            )
+    else:
+        response = transport.request(
+            "GET",
+            "https://facilitator.example/supported",
+            headers={},
+            body=None,
+            timeout=1,
+            max_response_bytes=1024,
+        )
+        assert response.status == 302
+    assert response_body.closed
+    assert opener.calls == 1

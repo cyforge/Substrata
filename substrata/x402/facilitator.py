@@ -34,6 +34,11 @@ from substrata.x402.models import (
 )
 
 MAX_TIMEOUT_SECONDS = 300.0
+MAX_RESPONSE_HEADER_BYTES = 1_500_000
+MAX_RESPONSE_HEADER_COUNT = 128
+_HEADER_NAME_CHARS = frozenset(
+    "!#$%&'*+-.^_`|~0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+)
 
 
 def _validate_network(value: str) -> None:
@@ -60,6 +65,18 @@ class FacilitatorError(IntegrationError):
         self.status_code = status_code
 
 
+class _ResponseTooLarge(FacilitatorError):
+    pass
+
+
+class _DuplicateExtensionHeaders(FacilitatorError):
+    pass
+
+
+class _InvalidContentLength(FacilitatorError):
+    pass
+
+
 @dataclass(frozen=True, slots=True)
 class TransportResponse:
     status: int
@@ -67,14 +84,64 @@ class TransportResponse:
     headers: Mapping[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        if type(self.status) is not int or not 100 <= self.status <= 599:
+            raise ValidationError("transport response status must be an HTTP status code")
+        if not isinstance(self.body, bytes) or len(self.body) > MAX_JSON_BYTES:
+            raise ValidationError("transport response body exceeds size limit")
         if not isinstance(self.headers, Mapping):
             raise ValidationError("transport response headers must be a mapping")
+        if len(self.headers) > MAX_RESPONSE_HEADER_COUNT:
+            raise ValidationError("transport response contains too many headers")
         normalized: dict[str, str] = {}
+        total_bytes = 0
         for name, value in self.headers.items():
             if not isinstance(name, str) or not isinstance(value, str):
                 raise ValidationError("transport response headers must contain strings")
-            normalized[name.lower()] = value
+            if not name or any(char not in _HEADER_NAME_CHARS for char in name):
+                raise ValidationError("transport response contains an invalid header name")
+            if any(ord(char) < 0x20 and char != "\t" or ord(char) == 0x7F for char in value):
+                raise ValidationError("transport response contains an invalid header value")
+            normalized_name = name.lower()
+            if normalized_name == "extension-responses" and normalized_name in normalized:
+                raise ValidationError("transport response contains duplicate extension headers")
+            total_bytes += len(name) + len(value.encode("utf-8")) + 4
+            if total_bytes > MAX_RESPONSE_HEADER_BYTES:
+                raise ValidationError("transport response headers exceed size limit")
+            normalized[normalized_name] = value
         object.__setattr__(self, "headers", MappingProxyType(normalized))
+
+
+def _collect_http_headers(headers: object) -> dict[str, str]:
+    if not isinstance(headers, Mapping) and not hasattr(headers, "items"):
+        raise FacilitatorError("facilitator returned invalid HTTP headers")
+    get_all = getattr(headers, "get_all", None)
+    if callable(get_all):
+        extension_values = get_all("EXTENSION-RESPONSES", [])
+        if extension_values and len(extension_values) != 1:
+            raise _DuplicateExtensionHeaders(
+                "facilitator returned duplicate extension response headers"
+            )
+    return dict(headers.items())  # type: ignore[attr-defined]
+
+
+def _check_declared_body_length(headers: object, maximum: int, status: int) -> None:
+    get_all = getattr(headers, "get_all", None)
+    if not callable(get_all):
+        return
+    values = get_all("Content-Length", [])
+    if not values:
+        return
+    if (
+        len(values) != 1
+        or not isinstance(values[0], str)
+        or not values[0].isascii()
+        or not values[0].isdigit()
+    ):
+        raise _InvalidContentLength(
+            "facilitator returned invalid Content-Length", status_code=status
+        )
+    if int(values[0]) > maximum:
+        raise _ResponseTooLarge("facilitator response exceeds size limit", status_code=status)
 
 
 class Transport(Protocol):
@@ -119,26 +186,31 @@ class UrllibTransport:
         except urllib.error.HTTPError as error:
             # Redirect responses are returned for normal status handling; no location is followed.
             if 300 <= error.code < 400:
-                return TransportResponse(error.code, b"", dict(error.headers.items()))
+                try:
+                    return TransportResponse(error.code, b"", _collect_http_headers(error.headers))
+                finally:
+                    error.close()
             try:
+                _check_declared_body_length(error.headers, max_response_bytes, error.code)
                 raw = error.read(max_response_bytes + 1)
             finally:
                 error.close()
             if len(raw) > max_response_bytes:
-                raise FacilitatorError(
+                raise _ResponseTooLarge(
                     "facilitator response exceeds size limit", status_code=error.code
                 ) from None
-            return TransportResponse(error.code, raw, dict(error.headers.items()))
+            return TransportResponse(error.code, raw, _collect_http_headers(error.headers))
         except (urllib.error.URLError, TimeoutError, OSError):
             raise FacilitatorError("facilitator transport failed") from None
         try:
+            _check_declared_body_length(response.headers, max_response_bytes, response.status)
             raw = response.read(max_response_bytes + 1)
             status = response.status
         finally:
             response.close()
         if len(raw) > max_response_bytes:
-            raise FacilitatorError("facilitator response exceeds size limit", status_code=status)
-        return TransportResponse(status, raw, dict(response.headers.items()))
+            raise _ResponseTooLarge("facilitator response exceeds size limit", status_code=status)
+        return TransportResponse(status, raw, _collect_http_headers(response.headers))
 
 
 def _freeze_json(value: object, depth: int = 0) -> FrozenJsonValue:
@@ -174,7 +246,7 @@ class SupportedKind:
     x402_version: int
     scheme: str
     network: str
-    extra: FrozenJsonObject | None = None
+    extra: FrozenJsonObject | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
         if type(self.x402_version) is not int or self.x402_version != 2:
@@ -276,6 +348,12 @@ class SupportedResponse:
             "signers": {pattern: list(addresses) for pattern, addresses in self.signers.items()},
         }
 
+    def supports(self, scheme: str, network: str) -> bool:
+        """Return whether facilitator advertises this scheme and network pair."""
+        if not isinstance(scheme, str) or not isinstance(network, str):
+            return False
+        return any(kind.scheme == scheme and kind.network == network for kind in self.kinds)
+
 
 class Facilitator(Protocol):
     def verify(
@@ -343,9 +421,10 @@ class HTTPFacilitator:
         if api_key is not None and (
             not isinstance(api_key, str)
             or not api_key
+            or len(api_key) > 8192
             or any(not 0x21 <= ord(char) <= 0x7E for char in api_key)
         ):
-            raise ValidationError("api_key must be a non-empty string")
+            raise ValidationError("api_key must be 1 to 8192 visible ASCII characters")
         if (
             not isinstance(timeout, (int, float))
             or isinstance(timeout, bool)
@@ -354,6 +433,8 @@ class HTTPFacilitator:
             raise ValidationError("timeout must be greater than zero and at most 300 seconds")
         if type(max_response_bytes) is not int or not 1 <= max_response_bytes <= MAX_JSON_BYTES:
             raise ValidationError("max_response_bytes must be between 1 byte and 1 MiB")
+        if transport is not None and not callable(getattr(transport, "request", None)):
+            raise ValidationError("transport must provide a request method")
         self._api_key = api_key
         self._timeout = float(timeout)
         self._max_response_bytes = max_response_bytes
@@ -380,8 +461,18 @@ class HTTPFacilitator:
                 timeout=self._timeout,
                 max_response_bytes=self._max_response_bytes,
             )
-        except FacilitatorError:
-            raise
+        except _ResponseTooLarge as error:
+            raise FacilitatorError(
+                "facilitator response exceeds size limit", status_code=error.status_code
+            ) from None
+        except _DuplicateExtensionHeaders:
+            raise FacilitatorError(
+                "facilitator returned duplicate extension response headers"
+            ) from None
+        except _InvalidContentLength as error:
+            raise FacilitatorError(
+                "facilitator returned invalid Content-Length", status_code=error.status_code
+            ) from None
         except Exception:
             # Do not echo transport exceptions: they may contain the authenticated URL or headers.
             raise FacilitatorError("facilitator transport failed") from None
@@ -400,8 +491,18 @@ class HTTPFacilitator:
                 timeout=self._timeout,
                 max_response_bytes=self._max_response_bytes,
             )
-        except FacilitatorError:
-            raise
+        except _ResponseTooLarge as error:
+            raise FacilitatorError(
+                "facilitator response exceeds size limit", status_code=error.status_code
+            ) from None
+        except _DuplicateExtensionHeaders:
+            raise FacilitatorError(
+                "facilitator returned duplicate extension response headers"
+            ) from None
+        except _InvalidContentLength as error:
+            raise FacilitatorError(
+                "facilitator returned invalid Content-Length", status_code=error.status_code
+            ) from None
         except Exception:
             raise FacilitatorError("facilitator transport failed") from None
         return self._checked_response(response)

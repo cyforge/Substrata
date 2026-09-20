@@ -41,6 +41,7 @@ def test_stellar_v2_wire_fields_round_trip() -> None:
     )
     assert payload.to_dict()["payload"] == {"transaction": "YWJj"}
     assert payload.accepted.network == "stellar:testnet"
+    assert payload.stellar_transaction_xdr == b"abc"
 
 
 def test_requirements_reject_invalid_amount_and_boolean_timeout() -> None:
@@ -267,6 +268,8 @@ def test_non_stellar_scheme_payload_remains_scheme_specific() -> None:
     requirements = PaymentRequirements("exact", "eip155:8453", "1", "0xToken", "0xRecipient", 60)
     payload = PaymentPayload(requirements, {"signature": "opaque", "authorization": {}})
     assert payload.to_dict()["payload"] == {"signature": "opaque", "authorization": {}}
+    with pytest.raises(ValidationError, match="exact Stellar"):
+        _ = payload.stellar_transaction_xdr
 
 
 def test_facilitator_request_is_typed_and_round_trips() -> None:
@@ -286,3 +289,171 @@ def test_facilitator_request_is_typed_and_round_trips() -> None:
         )
     with pytest.raises(ValidationError):
         FacilitatorPaymentRequest.from_dict({**request.to_dict(), "extra": {}})
+
+
+def test_wire_model_repr_hides_urls_and_extension_data() -> None:
+    requirements = PaymentRequirements(
+        "exact",
+        "eip155:8453",
+        "1",
+        "token",
+        "recipient",
+        60,
+        extra={"accessToken": "secret-requirement"},
+    )
+    resource = ResourceInfo(
+        "https://example.test/data?token=secret-url",
+        description="resource",
+    )
+    challenge = PaymentRequired(
+        resource,
+        (requirements,),
+        extensions={"proof": {"token": "secret-extension"}},
+    )
+    payload = PaymentPayload(
+        requirements,
+        {"signature": "secret-signature"},
+        resource=resource,
+        extensions={"token": "secret-payload-extension"},
+    )
+    rendered = repr((requirements, resource, challenge, payload))
+    for secret in (
+        "secret-requirement",
+        "secret-url",
+        "secret-extension",
+        "secret-signature",
+        "secret-payload-extension",
+    ):
+        assert secret not in rendered
+
+
+def test_reserved_payment_flow_and_transfer_method_are_typed() -> None:
+    requirements = PaymentRequirements(
+        "exact",
+        "eip155:8453",
+        "12",
+        "token",
+        "recipient",
+        60,
+        extra={"assetTransferMethod": "permit2", "paymentFlow": "upfront"},
+    )
+    assert requirements.asset_transfer_method == "permit2"
+    assert requirements.payment_flow == "upfront"
+    with pytest.raises(ValidationError, match="assetTransferMethod"):
+        PaymentRequirements(
+            "exact", "eip155:8453", "1", "a", "b", 60, extra={"assetTransferMethod": None}
+        )
+    with pytest.raises(ValidationError, match="paymentFlow"):
+        PaymentRequirements(
+            "exact", "eip155:8453", "1", "a", "b", 60, extra={"paymentFlow": "later"}
+        )
+
+
+def test_requirements_expose_parsed_network_and_atomic_amount() -> None:
+    requirements = PaymentRequirements.from_dict(REQ)
+    assert requirements.amount_atomic == 10_000_000
+    assert requirements.network_namespace == "stellar"
+    assert requirements.network_reference == "testnet"
+
+
+def test_success_responses_reject_failure_diagnostics() -> None:
+    with pytest.raises(ValidationError, match="valid verify response"):
+        VerifyResponse.from_dict({"isValid": True, "invalidReason": "invalid_payload"})
+    with pytest.raises(ValidationError, match="valid verify response"):
+        VerifyResponse.from_dict({"isValid": True, "invalidMessage": "bad"})
+    with pytest.raises(ValidationError, match="successful settlement"):
+        SettlementResponse.from_dict(
+            {
+                "success": True,
+                "transaction": "hash",
+                "network": "stellar:testnet",
+                "errorReason": "settlement_pending",
+            }
+        )
+
+
+def test_payment_required_filters_offers_without_choosing_a_rail() -> None:
+    base = PaymentRequirements(
+        "exact",
+        "eip155:8453",
+        "100",
+        "token",
+        "recipient",
+        60,
+        extra={"assetTransferMethod": "permit2", "paymentFlow": "authorization"},
+    )
+    other = PaymentRequirements(
+        "exact",
+        "eip155:8453",
+        "100",
+        "token",
+        "recipient",
+        60,
+        extra={"assetTransferMethod": "eip3009", "paymentFlow": "authorization"},
+    )
+    different_network = PaymentRequirements(
+        "exact",
+        "eip155:84532",
+        "100",
+        "token",
+        "recipient",
+        60,
+    )
+    challenge = PaymentRequired(
+        ResourceInfo("https://example.test"),
+        (base, other, different_network),
+    )
+    assert challenge.offers_for("exact", "eip155:8453") == (base, other)
+    assert challenge.offers_for(
+        "exact",
+        "eip155:8453",
+        asset_transfer_method="permit2",
+        payment_flow="authorization",
+    ) == (base,)
+    assert challenge.offers_for("exact", "eip155:8453", asset_transfer_method="unknown") == ()
+    assert challenge.offers_for("exact", "eip155:8453", payment_flow="future") == ()  # type: ignore[arg-type]
+
+
+def test_models_reject_unpaired_unicode_surrogates() -> None:
+    requirements = PaymentRequirements("exact", "eip155:8453", "1", "asset", "payee", 60)
+    with pytest.raises(ValidationError, match="Unicode"):
+        PaymentPayload(requirements, {"signature": "\ud800"})
+    with pytest.raises(ValidationError, match="Unicode"):
+        PaymentRequirements(
+            "exact",
+            "eip155:8453",
+            "1",
+            "asset",
+            "payee",
+            60,
+            extra={"\ud800": "value"},
+        )
+
+
+def test_settlement_amount_is_atomic_units_with_offchain_empty_exception() -> None:
+    offchain = SettlementResponse(
+        success=True,
+        transaction="",
+        network="eip155:8453",
+        amount="",
+    )
+    assert offchain.success and offchain.transaction == "" and offchain.amount == ""
+    for amount in ("-1", "1.0", "NaN", str(1 << 256)):
+        with pytest.raises(ValidationError, match="atomic-unit"):
+            SettlementResponse.from_dict(
+                {
+                    "success": False,
+                    "transaction": "",
+                    "network": "eip155:8453",
+                    "amount": amount,
+                }
+            )
+    with pytest.raises(ValidationError, match="amount"):
+        SettlementResponse.from_dict(
+            {
+                "success": False,
+                "transaction": "",
+                "network": "eip155:8453",
+                "amount": 1,
+            }
+        )
