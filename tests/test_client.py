@@ -652,3 +652,68 @@ def test_stellar_receipt_payer_must_match_signer_identity():
     assert result.payment is not None and result.payment.status is PaymentStatus.UNCERTAIN
     assert ledger.get("wrong-stellar-payer").status is LedgerStatus.UNCERTAIN
     assert ledger.spent("stellar_testnet:contract:Ctoken-contract") > 0
+
+
+@pytest.mark.parametrize(
+    "receipt_changes, reason",
+    [
+        ({"network": "stellar:pubnet"}, "network"),
+        ({"transaction": "invalid-hash"}, "transaction"),
+        ({"amount": "10000001"}, "amount"),
+    ],
+)
+def test_stellar_receipt_fields_must_match_offer(receipt_changes, reason):
+    import base64
+    from dataclasses import replace
+
+    from substrata.x402.models import PaymentPayload
+
+    class ExactSigner:
+        address = "Gexpected-payer"
+
+        def supports(self, requirements):
+            return requirements.scheme == "exact"
+
+        def sign(self, requirements, resource):
+            return PaymentPayload(
+                accepted=requirements,
+                resource=resource,
+                payload={"transaction": base64.b64encode(b"auth-xdr").decode("ascii")},
+            )
+
+    url = "https://api.example.test/data"
+    resource = ResourceInfo(url)
+    offer = PaymentRequirements(
+        "exact",
+        "stellar:testnet",
+        "10000000",
+        "Ctoken-contract",
+        "Gmerchant",
+        30,
+        {"areFeesSponsored": True},
+    )
+    required = PaymentRequired(resource=resource, accepts=(offer,))
+    receipt = SettlementResponse(
+        True, "a" * 64, "stellar:testnet", payer="Gexpected-payer", amount="10000000"
+    )
+    receipt = replace(receipt, **receipt_changes)
+    policy = SpendPolicy(
+        allowed_networks=frozenset({Network.STELLAR_TESTNET}),
+        allowed_recipients=frozenset({"Gmerchant"}),
+        allowed_assets=frozenset({Asset.soroban("Ctoken-contract")}),
+        total_limit="2",
+        allowed_origins=frozenset({"https://api.example.test"}),
+    )
+    ledger = Ledger(":memory:")
+    transport = QueueTransport(
+        [
+            HTTPResponse(
+                402, {"payment-required": encode_payment_required_header(required)}, b"pay"
+            ),
+            HTTPResponse(200, {"payment-response": encode_payment_response_header(receipt)}, b"ok"),
+        ]
+    )
+    client = BuyerClient(policy, ExactSigner(), ledger=ledger, transport=transport)
+    result = client.get(url, request_id=f"invalid-receipt-{reason}")
+    assert result.payment is not None and result.payment.status is PaymentStatus.UNCERTAIN
+    assert ledger.get(f"invalid-receipt-{reason}").status is LedgerStatus.UNCERTAIN
