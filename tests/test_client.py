@@ -592,3 +592,63 @@ def test_invalid_caller_headers_are_rejected_before_transport():
     with pytest.raises(ValidationError, match="too many headers"):
         client.get(URL, headers={f"X-{index}": "v" for index in range(101)})
     assert transport.calls == []
+
+
+def test_stellar_receipt_payer_must_match_signer_identity():
+    import base64
+
+    from substrata.x402.models import PaymentPayload
+
+    class ExactSigner:
+        address = "Gexpected-payer"
+
+        def supports(self, requirements):
+            return requirements.scheme == "exact" and requirements.network == "stellar:testnet"
+
+        def sign(self, requirements, resource):
+            return PaymentPayload(
+                accepted=requirements,
+                resource=resource,
+                payload={"transaction": base64.b64encode(b"signed-auth-xdr").decode("ascii")},
+            )
+
+    url = "https://api.example.test/data"
+    resource = ResourceInfo(url)
+    offer = PaymentRequirements(
+        "exact",
+        "stellar:testnet",
+        "10000000",
+        "Ctoken-contract",
+        "Gmerchant",
+        45,
+        {"areFeesSponsored": True},
+    )
+    payment_required = PaymentRequired(resource=resource, accepts=(offer,))
+    receipt = SettlementResponse(
+        True,
+        "a" * 64,
+        "stellar:testnet",
+        payer="Gdifferent-payer",
+        amount="10000000",
+    )
+    policy = SpendPolicy(
+        allowed_networks=frozenset({Network.STELLAR_TESTNET}),
+        allowed_recipients=frozenset({"Gmerchant"}),
+        allowed_assets=frozenset({Asset.soroban("Ctoken-contract")}),
+        total_limit="2",
+        allowed_origins=frozenset({"https://api.example.test"}),
+    )
+    ledger = Ledger(":memory:")
+    transport = QueueTransport(
+        [
+            HTTPResponse(
+                402, {"payment-required": encode_payment_required_header(payment_required)}, b"pay"
+            ),
+            HTTPResponse(200, {"payment-response": encode_payment_response_header(receipt)}, b"ok"),
+        ]
+    )
+    client = BuyerClient(policy, ExactSigner(), ledger=ledger, transport=transport)
+    result = client.get(url, request_id="wrong-stellar-payer")
+    assert result.payment is not None and result.payment.status is PaymentStatus.UNCERTAIN
+    assert ledger.get("wrong-stellar-payer").status is LedgerStatus.UNCERTAIN
+    assert ledger.spent("stellar_testnet:contract:Ctoken-contract") > 0

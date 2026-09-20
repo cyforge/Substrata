@@ -633,12 +633,7 @@ def _validate_receipt(
             c not in "0123456789abcdefABCDEF" for c in receipt.transaction
         ):
             raise ValidationError("Stellar receipt transaction must be a 64-character hash")
-        expected_payer = getattr(payload, "payer", None)
-        if (
-            receipt.payer is not None
-            and expected_payer is not None
-            and receipt.payer != expected_payer
-        ):
+        if expected_payer is not None and receipt.payer != expected_payer:
             raise ValidationError("settlement payer mismatch")
     if receipt.amount is not None and receipt.amount != offer.amount:
         raise ValidationError("settlement amount does not match offer")
