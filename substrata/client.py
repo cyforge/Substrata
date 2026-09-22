@@ -208,6 +208,10 @@ class BuyerClient:
         replayable: bool = False,
     ) -> ClientResponse:
         self._ensure_open()
+        if request_id is not None and (not isinstance(request_id, str) or not request_id.strip()):
+            raise ValidationError("request_id must be a non-empty string")
+        if type(replayable) is not bool:
+            raise ValidationError("replayable must be bool")
         if (
             not isinstance(method, str)
             or not method

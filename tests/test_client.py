@@ -752,3 +752,27 @@ def test_signer_must_declare_capability_before_client_construction():
 
     with pytest.raises(ValidationError, match="supports"):
         BuyerClient(POLICY, NoCapabilitySigner(), allow_ephemeral_ledger=True)
+
+
+@pytest.mark.parametrize("request_id", ["", "  ", False, 0])
+def test_invalid_request_id_is_rejected_before_network_io(request_id):
+    pair = create_local_demo_pair()
+    transport = QueueTransport([])
+    client = BuyerClient(POLICY, pair.signer, ledger=Ledger(":memory:"), transport=transport)
+
+    with pytest.raises(ValidationError, match="request_id"):
+        client.get(URL, request_id=request_id)
+
+    assert transport.calls == []
+
+
+@pytest.mark.parametrize("replayable", ["false", 1, None])
+def test_replayable_requires_literal_bool_before_network_io(replayable):
+    pair = create_local_demo_pair()
+    transport = QueueTransport([])
+    client = BuyerClient(POLICY, pair.signer, ledger=Ledger(":memory:"), transport=transport)
+
+    with pytest.raises(ValidationError, match="replayable"):
+        client.post(URL, b"body", replayable=replayable)
+
+    assert transport.calls == []
