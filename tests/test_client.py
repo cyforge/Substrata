@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from substrata.client import BuyerClient, HTTPResponse
+from substrata.client import BuyerClient, ClientError, HTTPResponse
 from substrata.constants import Network
 from substrata.errors import ValidationError
 from substrata.models import Asset, PaymentStatus
@@ -717,3 +717,38 @@ def test_stellar_receipt_fields_must_match_offer(receipt_changes, reason):
     result = client.get(url, request_id=f"invalid-receipt-{reason}")
     assert result.payment is not None and result.payment.status is PaymentStatus.UNCERTAIN
     assert ledger.get(f"invalid-receipt-{reason}").status is LedgerStatus.UNCERTAIN
+
+
+def test_signer_capability_must_return_an_actual_bool():
+    class NonBooleanSigner:
+        def supports(self, requirements):
+            return "false"
+
+        def sign(self, requirements, resource):
+            raise AssertionError("sign must never run")
+
+    transport = QueueTransport(
+        [
+            HTTPResponse(
+                402, {"payment-required": encode_payment_required_header(challenge())}, b"pay"
+            ),
+        ]
+    )
+    client = BuyerClient(
+        POLICY,
+        NonBooleanSigner(),
+        ledger=Ledger(":memory:"),
+        transport=transport,
+    )
+    with pytest.raises(ClientError, match="must return bool"):
+        client.get(URL, request_id="capability-not-bool")
+    assert len(transport.calls) == 1
+
+
+def test_signer_must_declare_capability_before_client_construction():
+    class NoCapabilitySigner:
+        def sign(self, requirements, resource):
+            raise AssertionError("sign must never run")
+
+    with pytest.raises(ValidationError, match="supports"):
+        BuyerClient(POLICY, NoCapabilitySigner(), allow_ephemeral_ledger=True)

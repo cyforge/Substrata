@@ -137,6 +137,8 @@ class BuyerClient:
     ) -> None:
         if not isinstance(policy, SpendPolicy):
             raise ValidationError("policy must be SpendPolicy")
+        if not callable(getattr(signer, "supports", None)):
+            raise ValidationError("signer must provide supports(requirements)")
         if not callable(getattr(signer, "sign", None)):
             raise ValidationError("signer must provide sign(requirements, resource)")
         if type(timeout) not in (int, float) or not 0 < timeout <= 300:
@@ -555,18 +557,14 @@ class AsyncBuyerClient:
         self.client._ensure_open()
 
 
-def _offer_supported(signer: object, offer: PaymentRequirements) -> bool:
-    supports = getattr(signer, "supports", None)
-    if callable(supports):
-        try:
-            return bool(supports(offer))
-        except Exception:
-            raise ClientError("signer capability check failed") from None
-    return (
-        signer.__class__.__name__ == "LocalDemoSigner"
-        and offer.scheme == "substrata-demo"
-        and offer.network == "stellar:testnet"
-    )
+def _offer_supported(signer: PaymentSigner, offer: PaymentRequirements) -> bool:
+    try:
+        result = signer.supports(offer)
+    except Exception:
+        raise ClientError("signer capability check failed") from None
+    if type(result) is not bool:
+        raise ClientError("signer capability check must return bool")
+    return result
 
 
 def _payment_request(
