@@ -510,6 +510,59 @@ def test_async_client_runs_sync_transport_in_worker_thread():
     asyncio.run(exercise())
 
 
+def test_async_cancelled_payment_finishes_before_owned_ledger_closes(tmp_path: Path):
+    import asyncio
+    import threading
+
+    from substrata.client import AsyncBuyerClient
+
+    pair = create_local_demo_pair()
+    receipt = pair.facilitator.settle(pair.signer.sign(OFFER, RESOURCE), OFFER)
+    started = threading.Event()
+    release = threading.Event()
+
+    class BlockingPaidTransport(QueueTransport):
+        def send(self, method, url, headers, body, timeout, max_response_bytes):
+            self.calls.append((method, url, dict(headers), body))
+            if len(self.calls) == 2:
+                started.set()
+                if not release.wait(2):
+                    raise TimeoutError("test release timed out")
+            return self.responses.pop(0)
+
+    async def exercise():
+        path = tmp_path / "async-cancel.sqlite"
+        transport = BlockingPaidTransport(
+            [
+                HTTPResponse(
+                    402, {"payment-required": encode_payment_required_header(challenge())}, b"pay"
+                ),
+                HTTPResponse(
+                    200, {"payment-response": encode_payment_response_header(receipt)}, b"ok"
+                ),
+            ]
+        )
+        sync_client = BuyerClient(POLICY, pair.signer, ledger_path=str(path), transport=transport)
+        async_client = AsyncBuyerClient(sync_client)
+        request = asyncio.create_task(async_client.get(URL, request_id="cancelled-paid-call"))
+        started_ok = await asyncio.to_thread(started.wait, 1)
+        assert started_ok
+        request.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await request
+
+        closing = asyncio.create_task(async_client.close())
+        await asyncio.sleep(0.02)
+        assert not closing.done()
+        release.set()
+        await closing
+
+    asyncio.run(exercise())
+    ledger = Ledger(str(tmp_path / "async-cancel.sqlite"))
+    assert ledger.get("cancelled-paid-call").status is LedgerStatus.SETTLED
+    ledger.close()
+
+
 def test_file_ledger_keeps_budget_across_client_recreation(tmp_path: Path):
     pair = create_local_demo_pair()
     path = tmp_path / "persistent-buyer.sqlite"

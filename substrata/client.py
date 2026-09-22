@@ -9,7 +9,7 @@ import json
 import socket
 import ssl
 from dataclasses import dataclass
-from typing import Mapping, Protocol
+from typing import Callable, Mapping, Protocol
 from urllib.parse import urlsplit
 from uuid import uuid4
 
@@ -492,6 +492,8 @@ class AsyncBuyerClient:
         client._ensure_open()
         self.client = client
         self._closed = False
+        self._inflight: set[asyncio.Task[ClientResponse]] = set()
+        self._close_task: asyncio.Task[None] | None = None
 
     async def get(
         self,
@@ -501,7 +503,7 @@ class AsyncBuyerClient:
         request_id: str | None = None,
     ) -> ClientResponse:
         self._ensure_open()
-        return await asyncio.to_thread(self.client.get, url, headers=headers, request_id=request_id)
+        return await self._run(self.client.get, url, headers=headers, request_id=request_id)
 
     async def post(
         self,
@@ -513,7 +515,7 @@ class AsyncBuyerClient:
         replayable: bool = False,
     ) -> ClientResponse:
         self._ensure_open()
-        return await asyncio.to_thread(
+        return await self._run(
             self.client.post,
             url,
             body,
@@ -533,7 +535,7 @@ class AsyncBuyerClient:
         replayable: bool = False,
     ) -> ClientResponse:
         self._ensure_open()
-        return await asyncio.to_thread(
+        return await self._run(
             self.client.request,
             method,
             url,
@@ -544,9 +546,23 @@ class AsyncBuyerClient:
         )
 
     async def close(self) -> None:
-        if not self._closed:
-            await asyncio.to_thread(self.client.close)
+        if self._close_task is None:
             self._closed = True
+            self._close_task = asyncio.create_task(self._finish_close())
+        await asyncio.shield(self._close_task)
+
+    async def _run(
+        self, operation: Callable[..., ClientResponse], *args: object, **kwargs: object
+    ) -> ClientResponse:
+        task = asyncio.create_task(asyncio.to_thread(operation, *args, **kwargs))
+        self._inflight.add(task)
+        task.add_done_callback(self._inflight.discard)
+        return await asyncio.shield(task)
+
+    async def _finish_close(self) -> None:
+        if self._inflight:
+            await asyncio.gather(*tuple(self._inflight), return_exceptions=True)
+        await asyncio.to_thread(self.client.close)
 
     async def __aenter__(self) -> AsyncBuyerClient:
         self._ensure_open()
