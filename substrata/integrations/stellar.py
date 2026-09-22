@@ -31,6 +31,7 @@ class StellarAuthSigner:
         rpc_url: str,
         network: str = "stellar:testnet",
         ledger_seconds: int = 5,
+        max_authorization_seconds: int = 60,
         request_client: BaseSyncClient | None = None,
     ) -> None:
         if not isinstance(secret_seed, str) or not secret_seed:
@@ -40,10 +41,13 @@ class StellarAuthSigner:
             raise ValidationError("Stellar signer supports testnet or pubnet")
         if type(ledger_seconds) is not int or not 1 <= ledger_seconds <= 60:
             raise ValidationError("ledger_seconds must be from 1 to 60")
+        if type(max_authorization_seconds) is not int or not 1 <= max_authorization_seconds <= 3600:
+            raise ValidationError("max_authorization_seconds must be from 1 to 3600")
         self._secret_seed = secret_seed
         self.rpc_url = rpc_url
         self.network = network
         self.ledger_seconds = ledger_seconds
+        self.max_authorization_seconds = max_authorization_seconds
         self.request_client = request_client
         self._keypair: Keypair | None = None
 
@@ -88,7 +92,10 @@ class StellarAuthSigner:
         atomic_amount = int(requirements.amount)
         if atomic_amount <= 0 or atomic_amount > (1 << 127) - 1:
             raise ValidationError("Stellar amount is outside signed 128-bit range")
-        timeout_ledgers = math.ceil(requirements.max_timeout_seconds / self.ledger_seconds)
+        authorization_seconds = min(
+            requirements.max_timeout_seconds, self.max_authorization_seconds
+        )
+        timeout_ledgers = math.ceil(authorization_seconds / self.ledger_seconds)
         server = SorobanServer(self.rpc_url, client=self.request_client)
         try:
             ledger = server.get_latest_ledger()
