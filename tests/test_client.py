@@ -865,7 +865,7 @@ def test_signer_must_declare_capability_before_client_construction():
         BuyerClient(POLICY, NoCapabilitySigner(), allow_ephemeral_ledger=True)
 
 
-@pytest.mark.parametrize("request_id", ["", "  ", False, 0])
+@pytest.mark.parametrize("request_id", ["", "  ", False, 0, " padded ", "line\nbreak", "x" * 257])
 def test_invalid_request_id_is_rejected_before_network_io(request_id):
     pair = create_local_demo_pair()
     transport = QueueTransport([])
