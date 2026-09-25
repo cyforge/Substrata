@@ -563,6 +563,64 @@ def test_async_cancelled_payment_finishes_before_owned_ledger_closes(tmp_path: P
     ledger.close()
 
 
+def test_async_cancelled_worker_error_is_consumed_and_ledger_stays_uncertain(tmp_path: Path):
+    import asyncio
+    import threading
+
+    from substrata.client import AsyncBuyerClient
+
+    started = threading.Event()
+    release = threading.Event()
+
+    class FailingPaidTransport(QueueTransport):
+        def send(self, method, url, headers, body, timeout, max_response_bytes):
+            if not self.calls:
+                self.calls.append((method, url, dict(headers), body))
+                return self.responses.pop(0)
+            self.calls.append((method, url, dict(headers), body))
+            started.set()
+            if not release.wait(2):
+                raise TimeoutError("test release timed out")
+            raise OSError("mocked outcome is unknown")
+
+    async def exercise():
+        path = tmp_path / "async-error.sqlite"
+        transport = FailingPaidTransport(
+            [
+                HTTPResponse(
+                    402, {"payment-required": encode_payment_required_header(challenge())}, b"pay"
+                )
+            ]
+        )
+        sync_client = BuyerClient(
+            POLICY,
+            create_local_demo_pair().signer,
+            ledger_path=str(path),
+            transport=transport,
+        )
+        async_client = AsyncBuyerClient(sync_client)
+        loop = asyncio.get_running_loop()
+        unhandled = []
+        loop.set_exception_handler(lambda _, context: unhandled.append(context))
+        request = asyncio.create_task(async_client.get(URL, request_id="cancelled-worker-error"))
+        assert await asyncio.to_thread(started.wait, 1)
+        request.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await request
+        closing = asyncio.create_task(async_client.close())
+        await asyncio.sleep(0.02)
+        assert not closing.done()
+        release.set()
+        await closing
+        await asyncio.sleep(0)
+        assert unhandled == []
+
+    asyncio.run(exercise())
+    ledger = Ledger(str(tmp_path / "async-error.sqlite"))
+    assert ledger.get("cancelled-worker-error").status is LedgerStatus.UNCERTAIN
+    ledger.close()
+
+
 def test_file_ledger_keeps_budget_across_client_recreation(tmp_path: Path):
     pair = create_local_demo_pair()
     path = tmp_path / "persistent-buyer.sqlite"

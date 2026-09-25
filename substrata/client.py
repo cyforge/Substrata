@@ -556,8 +556,13 @@ class AsyncBuyerClient:
     ) -> ClientResponse:
         task = asyncio.create_task(asyncio.to_thread(operation, *args, **kwargs))
         self._inflight.add(task)
-        task.add_done_callback(self._inflight.discard)
+        task.add_done_callback(self._task_done)
         return await asyncio.shield(task)
+
+    def _task_done(self, task: asyncio.Task[ClientResponse]) -> None:
+        self._inflight.discard(task)
+        if not task.cancelled():
+            task.exception()
 
     async def _finish_close(self) -> None:
         if self._inflight:
