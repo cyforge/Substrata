@@ -152,12 +152,21 @@ def test_policy_skips_first_supported_offer_and_selects_later_allowed_offer():
     expensive = PaymentRequirements(
         "substrata-demo", "stellar:testnet", "30000000", "XLM", OFFER.pay_to, 45
     )
+    unsupported = PaymentRequirements(
+        "exact",
+        "stellar:pubnet",
+        "12500000",
+        "C" + "A" * 55,
+        OFFER.pay_to,
+        45,
+        {"areFeesSponsored": True},
+    )
     affordable = PaymentRequirements(
         "substrata-demo", "stellar:testnet", "15000000", "XLM", OFFER.pay_to, 45
     )
     paid_payload = pair.signer.sign(affordable, RESOURCE)
     receipt = pair.facilitator.settle(paid_payload, affordable)
-    multi = PaymentRequired(resource=RESOURCE, accepts=(expensive, affordable))
+    multi = PaymentRequired(resource=RESOURCE, accepts=(unsupported, expensive, affordable))
     transport = QueueTransport(
         [
             HTTPResponse(402, {"payment-required": encode_payment_required_header(multi)}, b"pay"),
