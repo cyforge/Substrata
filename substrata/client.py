@@ -172,7 +172,7 @@ class BuyerClient:
             if self._owns_ledger:
                 self.ledger.close()
             raise ValidationError("transport must provide send()")
-        self.transport = transport or HTTPTransport()
+        self.transport = transport if transport is not None else HTTPTransport()
         self.timeout = float(timeout)
         self.max_response_bytes = max_response_bytes
         self.max_request_body_bytes = max_request_body_bytes

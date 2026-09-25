@@ -147,6 +147,26 @@ def test_ephemeral_budget_requires_explicit_opt_in():
     client.close()
 
 
+def test_falsey_injected_transport_is_preserved():
+    class FalseyTransport(QueueTransport):
+        def __bool__(self):
+            return False
+
+    pair = create_local_demo_pair()
+    transport = FalseyTransport([HTTPResponse(200, {}, b"custom")])
+    client = BuyerClient(
+        POLICY,
+        pair.signer,
+        ledger=Ledger(":memory:"),
+        transport=transport,
+    )
+
+    result = client.get(URL)
+
+    assert result.body == b"custom"
+    assert len(transport.calls) == 1
+
+
 def test_policy_skips_first_supported_offer_and_selects_later_allowed_offer():
     pair = create_local_demo_pair()
     expensive = PaymentRequirements(
