@@ -1,3 +1,6 @@
+import subprocess
+import sys
+
 import pytest
 
 from substrata.errors import ValidationError
@@ -27,3 +30,19 @@ def test_signer_rejects_unsafe_rpc_urls_without_sdk_import(rpc_url):
 def test_signer_accepts_tls_or_exact_loopback_rpc_urls(rpc_url):
     signer = StellarAuthSigner("unused-seed", rpc_url=rpc_url)
     assert signer.rpc_url == rpc_url
+
+
+def test_public_stellar_signer_facade_does_not_import_optional_sdk():
+    source = (
+        "import sys; "
+        "import substrata; "
+        "from substrata.signers import StellarAuthSigner; "
+        "assert 'stellar_sdk' not in sys.modules"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", source],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
