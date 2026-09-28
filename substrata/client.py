@@ -310,6 +310,7 @@ class BuyerClient:
                 self._audit("payment_denied", denied_request, reason=denied_decision.reason_code)
                 return ClientResponse(402, {}, _policy_error(denied_decision))
             raise ValidationError("no payment offer supported by configured signer and policy")
+        expected_payer = _expected_payer(self.signer) if requirement.scheme == "exact" else None
         fingerprint = _fingerprint(method, url, body, requirement, challenge.resource)
         reservation = self.ledger.reserve_once(
             request.request_id,
@@ -380,9 +381,7 @@ class BuyerClient:
             )
         try:
             receipt = decode_payment_response_header(receipt_value)
-            _validate_receipt(
-                receipt, requirement, payload, expected_payer=getattr(self.signer, "address", None)
-            )
+            _validate_receipt(receipt, requirement, payload, expected_payer=expected_payer)
         except ValidationError:
             self.ledger.mark_uncertain(request.request_id, reason="paid response receipt invalid")
             self._audit("payment_uncertain", request, reason="invalid_receipt")
@@ -596,6 +595,16 @@ def _offer_supported(signer: PaymentSigner, offer: PaymentRequirements) -> bool:
     if type(result) is not bool:
         raise ClientError("signer capability check must return bool")
     return result
+
+
+def _expected_payer(signer: PaymentSigner) -> str:
+    try:
+        address = getattr(signer, "address", None)
+    except Exception:
+        raise ValidationError("exact payment signer must expose a valid payer address") from None
+    if not isinstance(address, str) or not address:
+        raise ValidationError("exact payment signer must expose a valid payer address")
+    return address
 
 
 def _payment_request(

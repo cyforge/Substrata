@@ -885,6 +885,62 @@ def test_signer_capability_must_return_an_actual_bool():
     assert len(transport.calls) == 1
 
 
+def test_exact_signer_payer_identity_is_checked_before_reservation():
+    contract = "C" + "A" * 55
+    exact_url = "https://api.example.test/resource"
+    offer = PaymentRequirements(
+        "exact",
+        "stellar:testnet",
+        "12500000",
+        contract,
+        OFFER.pay_to,
+        45,
+        {"areFeesSponsored": True},
+    )
+
+    class BrokenIdentitySigner:
+        @property
+        def address(self):
+            raise RuntimeError("secret-bearing backend failure")
+
+        def supports(self, requirements):
+            return requirements.scheme == "exact"
+
+        def sign(self, requirements, resource):
+            raise AssertionError("payer identity must be checked before signing")
+
+    ledger = Ledger(":memory:")
+    transport = QueueTransport(
+        [
+            HTTPResponse(
+                402,
+                {
+                    "payment-required": encode_payment_required_header(
+                        PaymentRequired(ResourceInfo(exact_url), (offer,))
+                    )
+                },
+                b"pay",
+            )
+        ]
+    )
+    policy = SpendPolicy(
+        allowed_networks=frozenset({Network.STELLAR_TESTNET}),
+        allowed_recipients=frozenset({OFFER.pay_to}),
+        allowed_assets=frozenset({Asset.soroban(contract)}),
+        total_limit="2",
+        daily_limit="2",
+        allowed_origins=frozenset({"https://api.example.test"}),
+    )
+    client = BuyerClient(policy, BrokenIdentitySigner(), ledger=ledger, transport=transport)
+
+    with pytest.raises(ValidationError, match="payer address") as error:
+        client.get(exact_url, request_id="bad-signer-identity")
+
+    assert "secret-bearing" not in str(error.value)
+    assert ledger.spent(f"{Network.STELLAR_TESTNET.value}:{contract}") == 0
+    assert len(transport.calls) == 1
+
+
 def test_signer_must_declare_capability_before_client_construction():
     class NoCapabilitySigner:
         def sign(self, requirements, resource):
