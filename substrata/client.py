@@ -9,7 +9,7 @@ import json
 import socket
 import ssl
 from dataclasses import dataclass
-from typing import Mapping, Protocol
+from typing import Callable, Mapping, Protocol
 from urllib.parse import urlsplit
 from uuid import uuid4
 
@@ -137,6 +137,8 @@ class BuyerClient:
     ) -> None:
         if not isinstance(policy, SpendPolicy):
             raise ValidationError("policy must be SpendPolicy")
+        if not callable(getattr(signer, "supports", None)):
+            raise ValidationError("signer must provide supports(requirements)")
         if not callable(getattr(signer, "sign", None)):
             raise ValidationError("signer must provide sign(requirements, resource)")
         if type(timeout) not in (int, float) or not 0 < timeout <= 300:
@@ -170,7 +172,7 @@ class BuyerClient:
             if self._owns_ledger:
                 self.ledger.close()
             raise ValidationError("transport must provide send()")
-        self.transport = transport or HTTPTransport()
+        self.transport = transport if transport is not None else HTTPTransport()
         self.timeout = float(timeout)
         self.max_response_bytes = max_response_bytes
         self.max_request_body_bytes = max_request_body_bytes
@@ -206,6 +208,16 @@ class BuyerClient:
         replayable: bool = False,
     ) -> ClientResponse:
         self._ensure_open()
+        if request_id is not None and (
+            not isinstance(request_id, str)
+            or not request_id.strip()
+            or len(request_id) > 256
+            or request_id != request_id.strip()
+            or any(ord(char) < 0x20 or ord(char) == 0x7F for char in request_id)
+        ):
+            raise ValidationError("request_id must be a clean string of at most 256 characters")
+        if type(replayable) is not bool:
+            raise ValidationError("replayable must be bool")
         if (
             not isinstance(method, str)
             or not method
@@ -298,6 +310,7 @@ class BuyerClient:
                 self._audit("payment_denied", denied_request, reason=denied_decision.reason_code)
                 return ClientResponse(402, {}, _policy_error(denied_decision))
             raise ValidationError("no payment offer supported by configured signer and policy")
+        expected_payer = _expected_payer(self.signer) if requirement.scheme == "exact" else None
         fingerprint = _fingerprint(method, url, body, requirement, challenge.resource)
         reservation = self.ledger.reserve_once(
             request.request_id,
@@ -368,9 +381,7 @@ class BuyerClient:
             )
         try:
             receipt = decode_payment_response_header(receipt_value)
-            _validate_receipt(
-                receipt, requirement, payload, expected_payer=getattr(self.signer, "address", None)
-            )
+            _validate_receipt(receipt, requirement, payload, expected_payer=expected_payer)
         except ValidationError:
             self.ledger.mark_uncertain(request.request_id, reason="paid response receipt invalid")
             self._audit("payment_uncertain", request, reason="invalid_receipt")
@@ -486,6 +497,8 @@ class AsyncBuyerClient:
         client._ensure_open()
         self.client = client
         self._closed = False
+        self._inflight: set[asyncio.Task[ClientResponse]] = set()
+        self._close_task: asyncio.Task[None] | None = None
 
     async def get(
         self,
@@ -495,7 +508,7 @@ class AsyncBuyerClient:
         request_id: str | None = None,
     ) -> ClientResponse:
         self._ensure_open()
-        return await asyncio.to_thread(self.client.get, url, headers=headers, request_id=request_id)
+        return await self._run(self.client.get, url, headers=headers, request_id=request_id)
 
     async def post(
         self,
@@ -507,7 +520,7 @@ class AsyncBuyerClient:
         replayable: bool = False,
     ) -> ClientResponse:
         self._ensure_open()
-        return await asyncio.to_thread(
+        return await self._run(
             self.client.post,
             url,
             body,
@@ -527,7 +540,7 @@ class AsyncBuyerClient:
         replayable: bool = False,
     ) -> ClientResponse:
         self._ensure_open()
-        return await asyncio.to_thread(
+        return await self._run(
             self.client.request,
             method,
             url,
@@ -538,9 +551,28 @@ class AsyncBuyerClient:
         )
 
     async def close(self) -> None:
-        if not self._closed:
-            await asyncio.to_thread(self.client.close)
+        if self._close_task is None:
             self._closed = True
+            self._close_task = asyncio.create_task(self._finish_close())
+        await asyncio.shield(self._close_task)
+
+    async def _run(
+        self, operation: Callable[..., ClientResponse], *args: object, **kwargs: object
+    ) -> ClientResponse:
+        task = asyncio.create_task(asyncio.to_thread(operation, *args, **kwargs))
+        self._inflight.add(task)
+        task.add_done_callback(self._task_done)
+        return await asyncio.shield(task)
+
+    def _task_done(self, task: asyncio.Task[ClientResponse]) -> None:
+        self._inflight.discard(task)
+        if not task.cancelled():
+            task.exception()
+
+    async def _finish_close(self) -> None:
+        if self._inflight:
+            await asyncio.gather(*tuple(self._inflight), return_exceptions=True)
+        await asyncio.to_thread(self.client.close)
 
     async def __aenter__(self) -> AsyncBuyerClient:
         self._ensure_open()
@@ -555,18 +587,24 @@ class AsyncBuyerClient:
         self.client._ensure_open()
 
 
-def _offer_supported(signer: object, offer: PaymentRequirements) -> bool:
-    supports = getattr(signer, "supports", None)
-    if callable(supports):
-        try:
-            return bool(supports(offer))
-        except Exception:
-            raise ClientError("signer capability check failed") from None
-    return (
-        signer.__class__.__name__ == "LocalDemoSigner"
-        and offer.scheme == "substrata-demo"
-        and offer.network == "stellar:testnet"
-    )
+def _offer_supported(signer: PaymentSigner, offer: PaymentRequirements) -> bool:
+    try:
+        result = signer.supports(offer)
+    except Exception:
+        raise ClientError("signer capability check failed") from None
+    if type(result) is not bool:
+        raise ClientError("signer capability check must return bool")
+    return result
+
+
+def _expected_payer(signer: PaymentSigner) -> str:
+    try:
+        address = getattr(signer, "address", None)
+    except Exception:
+        raise ValidationError("exact payment signer must expose a valid payer address") from None
+    if not isinstance(address, str) or not address:
+        raise ValidationError("exact payment signer must expose a valid payer address")
+    return address
 
 
 def _payment_request(

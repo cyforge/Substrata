@@ -313,12 +313,13 @@ class MockStellarRPC:
         return Client()
 
 
-def _sign_with_rpc(decimals: int):
+def _sign_with_rpc(decimals: int, timeout: int = 10, max_authorization_seconds: int = 60):
     payer = Keypair.random()
     rpc = MockStellarRPC(decimals)
     signer = StellarAuthSigner(
         payer.secret,
         rpc_url="https://soroban-testnet.stellar.org",
+        max_authorization_seconds=max_authorization_seconds,
         request_client=rpc,
     )
     offer = PaymentRequirements(
@@ -327,7 +328,7 @@ def _sign_with_rpc(decimals: int):
         "12500000",
         ASSET,
         Keypair.random().public_key,
-        10,
+        timeout,
         {"areFeesSponsored": True},
     )
     from substrata.x402.models import ResourceInfo
@@ -384,3 +385,39 @@ def test_public_signer_builds_and_signs_auth_xdr_with_mocked_rpc():
     signer._load_keypair().verify(authorization_payload_hash(preimage), signature)
     assert rpc.methods.count("simulateTransaction") == 2
     assert "sendTransaction" not in rpc.methods
+
+
+def test_auth_expiration_uses_ceil_offer_timeout_ledger_conversion():
+    from stellar_sdk.transaction_envelope import TransactionEnvelope
+
+    signer, rpc, _, payload = _sign_with_rpc(7, timeout=11)
+    envelope = TransactionEnvelope.from_xdr(
+        payload.payload["transaction"], Network.TESTNET_NETWORK_PASSPHRASE
+    )
+    auth = envelope.transaction.operations[0].auth[0]
+    assert auth.credentials.address_v2.signature_expiration_ledger.uint32 == 503
+    assert "sendTransaction" not in rpc.methods
+
+
+def test_auth_expiration_caps_untrusted_long_offer_timeout():
+    from stellar_sdk.transaction_envelope import TransactionEnvelope
+
+    signer, rpc, _, payload = _sign_with_rpc(7, timeout=86_400)
+    envelope = TransactionEnvelope.from_xdr(
+        payload.payload["transaction"], Network.TESTNET_NETWORK_PASSPHRASE
+    )
+    auth = envelope.transaction.operations[0].auth[0]
+    assert auth.credentials.address_v2.signature_expiration_ledger.uint32 == 512
+    assert signer.max_authorization_seconds == 60
+    assert "sendTransaction" not in rpc.methods
+
+
+@pytest.mark.parametrize("max_seconds", [0, 3601, True])
+def test_signer_rejects_invalid_local_authorization_lifetime(max_seconds):
+    payer = Keypair.random()
+    with pytest.raises(ValidationError, match="max_authorization_seconds"):
+        StellarAuthSigner(
+            payer.secret,
+            rpc_url="https://soroban-testnet.stellar.org",
+            max_authorization_seconds=max_seconds,
+        )
