@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import re
 from dataclasses import dataclass, field
 from typing import Callable, Protocol
@@ -200,6 +199,103 @@ def challenge_header(route: PaidRoute) -> str:
     return encode_header(route.challenge)
 
 
-def _proof_digest(payload: PaymentPayload) -> str:
-    """Non-identity digest for optional audit/correlation; not used for replay."""
-    return hashlib.sha256(repr(payload.to_dict()).encode("utf-8")).hexdigest()
+
+class StellarProofIdentityExtractor:
+    """Parse exact Stellar XDR and identify its signed auth nonce.
+
+    Imports `stellar-sdk` only when called. Facilitator verification remains
+    responsible for signature validity, expiration, and current-ledger checks.
+    """
+
+    def __call__(
+        self,
+        payload: PaymentPayload,
+        requirements: PaymentRequirements,
+        verified: VerifyResponse,
+    ) -> str:
+        if requirements.scheme != "exact" or not requirements.network.startswith("stellar:"):
+            raise ValidationError("Stellar proof identity requires exact Stellar offer")
+        try:
+            from stellar_sdk import Address, scval, xdr
+        except ImportError as exc:
+            raise ValidationError(
+                "stellar-sdk is required to parse Stellar proof identity"
+            ) from exc
+
+        try:
+            encoded = payload.payload["transaction"]
+            assert isinstance(encoded, str)
+            envelope = xdr.TransactionEnvelope.from_xdr(encoded)
+            if envelope.type == xdr.EnvelopeType.ENVELOPE_TYPE_TX:
+                assert envelope.v1 is not None
+                transaction = envelope.v1.tx
+            elif envelope.type == xdr.EnvelopeType.ENVELOPE_TYPE_TX_V0:
+                assert envelope.v0 is not None
+                transaction = envelope.v0.tx
+            else:
+                raise ValidationError("unsupported Stellar transaction envelope")
+            if len(transaction.operations) != 1:
+                raise ValidationError("Stellar payment must contain one operation")
+            operation = transaction.operations[0]
+            if operation.body.type != xdr.OperationType.INVOKE_HOST_FUNCTION:
+                raise ValidationError("Stellar payment operation must invoke a contract")
+            invoke = operation.body.invoke_host_function_op
+            assert invoke is not None
+            host = invoke.host_function
+            if host.type != xdr.HostFunctionType.HOST_FUNCTION_TYPE_INVOKE_CONTRACT:
+                raise ValidationError("Stellar payment must invoke a contract function")
+            call = host.invoke_contract
+            assert call is not None
+            contract = Address.from_xdr_sc_address(call.contract_address).address
+            function = call.function_name.sc_symbol.decode("ascii")
+            if contract != requirements.asset or function != "transfer" or len(call.args) != 3:
+                raise ValidationError("Stellar contract call does not match transfer offer")
+            payer = scval.from_address(call.args[0]).address
+            payee = scval.from_address(call.args[1]).address
+            amount = scval.from_int128(call.args[2])
+            if payee != requirements.pay_to or amount != requirements.amount_atomic:
+                raise ValidationError("Stellar transfer does not match offer")
+            if verified.payer is not None and verified.payer != payer:
+                raise ValidationError("verified payer does not match Stellar transfer")
+            if len(invoke.auth) != 1:
+                raise ValidationError("Stellar transfer requires one address authorization")
+
+            entry = invoke.auth[0]
+            credentials = entry.credentials
+            if credentials.type == xdr.SorobanCredentialsType.SOROBAN_CREDENTIALS_ADDRESS:
+                address_credentials = credentials.address
+            elif credentials.type == xdr.SorobanCredentialsType.SOROBAN_CREDENTIALS_ADDRESS_V2:
+                address_credentials = credentials.address_v2
+            else:
+                raise ValidationError("Stellar auth credentials must use an address")
+            assert address_credentials is not None
+            auth_address = Address.from_xdr_sc_address(address_credentials.address).address
+            if auth_address != payer:
+                raise ValidationError("Stellar auth address does not match transfer payer")
+            root = entry.root_invocation
+            if root.sub_invocations:
+                raise ValidationError("Stellar auth cannot include sub-invocations")
+            if (
+                root.function.type
+                != xdr.SorobanAuthorizedFunctionType.SOROBAN_AUTHORIZED_FUNCTION_TYPE_CONTRACT_FN
+            ):
+                raise ValidationError("Stellar auth must authorize contract transfer")
+            root_call = root.function.contract_fn
+            assert root_call is not None
+            root_contract = Address.from_xdr_sc_address(root_call.contract_address).address
+            root_function = root_call.function_name.sc_symbol.decode("ascii")
+            if root_contract != contract or root_function != "transfer":
+                raise ValidationError("Stellar auth root does not match transfer")
+            if len(root_call.args) != 3 or (
+                scval.from_address(root_call.args[0]).address != payer
+                or scval.from_address(root_call.args[1]).address != payee
+                or scval.from_int128(root_call.args[2]) != amount
+            ):
+                raise ValidationError("Stellar auth root arguments do not match transfer")
+            nonce = int(address_credentials.nonce.int64)
+            return f"stellar-exact:{payer}:{nonce}"
+        except ValidationError:
+            raise
+        except Exception as exc:
+            # Parser exceptions may include input fragments; expose no XDR data.
+            raise ValidationError("invalid Stellar payment transaction") from exc
