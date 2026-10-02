@@ -191,8 +191,13 @@ def _stellar_payload(memo: bytes = b""):
     )
     encoded = envelope.to_xdr()
     requirements = PaymentRequirements(
-        "exact", "stellar:testnet", "12", contract_address.address, payee_address.address,
-        60, extra={"areFeesSponsored": True},
+        "exact",
+        "stellar:testnet",
+        "12",
+        contract_address.address,
+        payee_address.address,
+        60,
+        extra={"areFeesSponsored": True},
     )
     payload = PaymentPayload(
         accepted=requirements,
@@ -231,3 +236,121 @@ def test_stellar_identity_uses_signed_address_and_nonce_across_envelopes() -> No
     assert proof1 == proof2
     assert proof1.startswith(f"stellar-exact:{payer}:")
     assert changed_envelope.payload["transaction"] != payload.payload["transaction"]
+
+
+def test_replay_claims_global_across_routes_and_persistent_restart(tmp_path) -> None:
+    item = fixture()
+    route2 = PaidRoute(
+        "/other",
+        "GET",
+        item.route.requirements,
+        "http://127.0.0.1:8080/other",
+    )
+    payload2 = PaymentPayload(
+        accepted=item.payload.accepted,
+        resource=ResourceInfo(url=route2.resource_url),
+        payload=item.payload.payload,
+    )
+
+    class FlexibleFacilitator:
+        def verify(self, payload, requirements):
+            return VerifyResponse(True, payer="demo-payer")
+
+        def settle(self, payload, requirements):
+            return SettlementResponse(
+                True,
+                "demo:" + "a" * 64,
+                requirements.network,
+                payer="demo-payer",
+                amount=requirements.amount,
+            )
+
+    def identity(payload, requirements, verified):
+        return f"signed-nonce:{payload.payload['nonce']}"
+
+    path = tmp_path / "shared.sqlite3"
+    with ReplayStore(path) as replay:
+        gate = PaymentGate(FlexibleFacilitator(), replay, proof_identity=identity)
+        assert gate.process(item.route, item.payload).paid
+    with ReplayStore(path) as reopened:
+        second = PaymentGate(FlexibleFacilitator(), reopened, proof_identity=identity)
+        assert second.process(route2, payload2).code == "payment_replayed"
+        assert reopened.count_claims(scope="stellar:testnet") == 1
+
+
+def test_only_supported_stellar_and_local_demo_schemes_reach_facilitator() -> None:
+    item = fixture()
+    unsupported = PaymentRequirements("other-scheme", "stellar:testnet", "12", "XLM", "GTEST", 60)
+
+    class CountingFacilitator:
+        calls = 0
+
+        def verify(self, payload, requirements):
+            self.calls += 1
+            return VerifyResponse(True)
+
+        def settle(self, payload, requirements):
+            self.calls += 1
+            return SettlementResponse(True, "demo:" + "a" * 64, requirements.network)
+
+    facilitator = CountingFacilitator()
+    route = PaidRoute("/paid", "GET", unsupported, item.route.resource_url)
+    payload = PaymentPayload(
+        unsupported,
+        item.payload.payload,
+        resource=ResourceInfo(url=item.route.resource_url),
+    )
+    result = PaymentGate(facilitator, ReplayStore(":memory:")).process(route, payload)
+    assert result.code == "unsupported_payment"
+    assert facilitator.calls == 0
+
+
+def test_configured_audit_failure_blocks_settlement_but_post_settle_failure_keeps_receipt() -> None:
+    item = fixture()
+
+    class AuditFailure:
+        def __init__(self, fail_at: str):
+            self.fail_at = fail_at
+            self.calls = 0
+
+        def __call__(self, event, data):
+            self.calls += 1
+            if event == self.fail_at:
+                raise OSError("private audit path")
+
+    class CountingFacilitator:
+        def __init__(self):
+            self.settle_calls = 0
+
+        def verify(self, payload, requirements):
+            return VerifyResponse(True, payer="demo-payer")
+
+        def settle(self, payload, requirements):
+            self.settle_calls += 1
+            return SettlementResponse(
+                True,
+                "demo:" + "a" * 64,
+                requirements.network,
+                payer="demo-payer",
+                amount=requirements.amount,
+            )
+
+    facilitator = CountingFacilitator()
+    before = PaymentGate(
+        facilitator,
+        ReplayStore(":memory:"),
+        proof_identity=lambda payload, requirements, verified: "nonce-a",
+        audit_log=AuditFailure("verified"),
+    ).process(item.route, item.payload)
+    assert before.code == "audit_unavailable"
+    assert facilitator.settle_calls == 0
+
+    after = PaymentGate(
+        facilitator,
+        ReplayStore(":memory:"),
+        proof_identity=lambda payload, requirements, verified: "nonce-b",
+        audit_log=AuditFailure("settled"),
+    ).process(item.route, item.payload)
+    assert after.paid is True
+    assert after.receipt is not None
+    assert facilitator.settle_calls == 1

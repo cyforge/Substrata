@@ -6,6 +6,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Callable, Protocol
 
+from substrata.audit import AuditLog
 from substrata.errors import ValidationError
 from substrata.storage import ReplayStore
 from substrata.x402.codec import encode_header
@@ -31,6 +32,7 @@ class ProviderFacilitator(Protocol):
 
 ProofIdentity = Callable[[PaymentPayload, PaymentRequirements, VerifyResponse], str]
 AuditWriter = Callable[[str, dict[str, str]], None]
+ProviderAudit = AuditLog | AuditWriter
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,8 +51,10 @@ class PaidRoute:
             raise ValidationError("route path must start with /")
         if self.path != "/" and self.path.endswith("/"):
             raise ValidationError("route path must be canonical without trailing slash")
-        if not isinstance(self.method, str) or not self.method.isascii():
-            raise ValidationError("route method must be ASCII")
+        if not isinstance(self.method, str) or not re.fullmatch(
+            r"[!#$%&'*+.^_`|~0-9A-Za-z-]+", self.method
+        ):
+            raise ValidationError("route method must be an HTTP token")
         object.__setattr__(self, "method", self.method.upper())
         if not isinstance(self.requirements, PaymentRequirements):
             raise ValidationError("route requirements must be PaymentRequirements")
@@ -92,7 +96,7 @@ class PaymentGate:
         replay_store: ReplayStore,
         *,
         proof_identity: ProofIdentity | None = None,
-        audit_log: AuditWriter | object | None = None,
+        audit_log: ProviderAudit | None = None,
     ) -> None:
         self.facilitator = facilitator
         self.replay_store = replay_store
@@ -103,6 +107,8 @@ class PaymentGate:
         if not isinstance(route, PaidRoute) or not isinstance(payload, PaymentPayload):
             return GateResult(False, "invalid_payment")
         requirement = route.requirements
+        if not self._supported(requirement):
+            return GateResult(False, "unsupported_payment")
         if payload.accepted != requirement:
             return GateResult(False, "offer_mismatch")
         if payload.resource is None or payload.resource.url != route.resource_url:
@@ -116,17 +122,23 @@ class PaymentGate:
         if not isinstance(verified, VerifyResponse) or verified.is_valid is not True:
             self._audit("verify_rejected", {})
             return GateResult(False, "payment_invalid")
-        self._audit("verified", {})
+        if not self._audit("verified", {}):
+            return GateResult(False, "audit_unavailable")
 
         try:
             proof_id = self._proof_id(payload, requirement, verified)
+        except Exception:
+            self._audit("proof_identity_rejected", {})
+            return GateResult(False, "proof_identity_invalid")
+        try:
             if not self.replay_store.claim(requirement.network, proof_id):
                 self._audit("replay_rejected", {})
                 return GateResult(False, "payment_replayed")
         except Exception:
             self._audit("claim_failed", {})
             return GateResult(False, "replay_store_unavailable")
-        self._audit("proof_claimed", {})
+        if not self._audit("proof_claimed", {}):
+            return GateResult(False, "audit_unavailable", proof_id=proof_id)
 
         try:
             receipt = self.facilitator.settle(payload, requirement)
@@ -175,29 +187,36 @@ class PaymentGate:
         if receipt.amount is not None and receipt.amount != requirement.amount:
             return False
         if requirement.scheme == "substrata-demo":
-            return receipt.transaction.startswith("demo:")
+            return bool(re.fullmatch(r"demo:[0-9a-f]{64}", receipt.transaction))
         if requirement.scheme == "exact" and requirement.network.startswith("stellar:"):
             return bool(re.fullmatch(r"[0-9a-fA-F]{64}", receipt.transaction))
         return False
 
-    def _audit(self, event: str, data: dict[str, str]) -> None:
+    @staticmethod
+    def _supported(requirement: PaymentRequirements) -> bool:
+        if requirement.scheme == "substrata-demo":
+            return requirement.network == "stellar:testnet"
+        return requirement.scheme == "exact" and requirement.network in {
+            "stellar:testnet",
+            "stellar:pubnet",
+        }
+
+    def _audit(self, event: str, data: dict[str, str]) -> bool:
+        sink = self.audit_log
+        if sink is None:
+            return True
         try:
-            sink = self.audit_log
-            if sink is None:
-                return
-            append = getattr(sink, "append", None)
-            if callable(append):
-                append(f"provider.{event}", data=data)
-            elif callable(sink):
+            if isinstance(sink, AuditLog):
+                sink.append(f"provider.{event}", data=data)
+            else:
                 sink(event, data)
+            return True
         except Exception:
-            # Audit failure must not alter payment outcome or leak proof material.
-            return
+            return False
 
 
 def challenge_header(route: PaidRoute) -> str:
     return encode_header(route.challenge)
-
 
 
 class StellarProofIdentityExtractor:
@@ -296,6 +315,6 @@ class StellarProofIdentityExtractor:
             return f"stellar-exact:{payer}:{nonce}"
         except ValidationError:
             raise
-        except Exception as exc:
+        except Exception:
             # Parser exceptions may include input fragments; expose no XDR data.
-            raise ValidationError("invalid Stellar payment transaction") from exc
+            raise ValidationError("invalid Stellar payment transaction") from None
