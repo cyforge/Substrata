@@ -354,3 +354,32 @@ def test_configured_audit_failure_blocks_settlement_but_post_settle_failure_keep
     assert after.paid is True
     assert after.receipt is not None
     assert facilitator.settle_calls == 1
+
+
+def test_route_challenge_and_gate_accept_all_configured_offers() -> None:
+    item = fixture()
+    alternate = PaymentRequirements(
+        "substrata-demo",
+        "stellar:testnet",
+        "24",
+        "XLM",
+        "GTEST",
+        60,
+    )
+    route = PaidRoute(
+        item.route.path,
+        item.route.method,
+        item.route.requirements,
+        item.route.resource_url,
+        additional_requirements=(alternate,),
+    )
+    assert route.challenge.accepts == (item.route.requirements, alternate)
+    # Use a facilitator and signer sharing a key for the second configured offer.
+    from substrata.x402.demo import LocalDemoFacilitator, LocalDemoKey, LocalDemoSigner
+
+    key = LocalDemoKey.generate()
+    facilitator = LocalDemoFacilitator(key)
+    signer = LocalDemoSigner(key)
+    alternate_payload = signer.sign(alternate, ResourceInfo(url=route.resource_url))
+    result = PaymentGate(facilitator, ReplayStore(":memory:")).process(route, alternate_payload)
+    assert result.paid is True

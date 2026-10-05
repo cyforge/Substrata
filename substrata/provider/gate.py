@@ -43,6 +43,7 @@ class PaidRoute:
     method: str
     requirements: PaymentRequirements
     resource_url: str
+    additional_requirements: tuple[PaymentRequirements, ...] = ()
     handler: Callable[..., object] | None = field(default=None, repr=False, compare=False)
     resource: ResourceInfo | None = None
 
@@ -58,6 +59,14 @@ class PaidRoute:
         object.__setattr__(self, "method", self.method.upper())
         if not isinstance(self.requirements, PaymentRequirements):
             raise ValidationError("route requirements must be PaymentRequirements")
+        if not isinstance(self.additional_requirements, (tuple, list)) or any(
+            not isinstance(item, PaymentRequirements) for item in self.additional_requirements
+        ):
+            raise ValidationError("additional_requirements must contain payment requirements")
+        offers = (self.requirements, *self.additional_requirements)
+        if len(set(offers)) != len(offers):
+            raise ValidationError("route payment requirements must be unique")
+        object.__setattr__(self, "additional_requirements", tuple(self.additional_requirements))
         if not isinstance(self.resource_url, str):
             raise ValidationError("route resource_url must be a string")
         if self.resource is None:
@@ -68,7 +77,10 @@ class PaidRoute:
     @property
     def challenge(self) -> PaymentRequired:
         assert self.resource is not None
-        return PaymentRequired(resource=self.resource, accepts=(self.requirements,))
+        return PaymentRequired(
+            resource=self.resource,
+            accepts=(self.requirements, *self.additional_requirements),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -106,11 +118,18 @@ class PaymentGate:
     def process(self, route: PaidRoute, payload: PaymentPayload) -> GateResult:
         if not isinstance(route, PaidRoute) or not isinstance(payload, PaymentPayload):
             return GateResult(False, "invalid_payment")
-        requirement = route.requirements
+        requirement = next(
+            (
+                offer
+                for offer in (route.requirements, *route.additional_requirements)
+                if payload.accepted == offer
+            ),
+            None,
+        )
+        if requirement is None:
+            return GateResult(False, "offer_mismatch")
         if not self._supported(requirement):
             return GateResult(False, "unsupported_payment")
-        if payload.accepted != requirement:
-            return GateResult(False, "offer_mismatch")
         if payload.resource is None or payload.resource.url != route.resource_url:
             return GateResult(False, "resource_mismatch")
 
