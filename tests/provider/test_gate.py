@@ -442,3 +442,42 @@ def test_concurrent_requests_settle_once() -> None:
     assert sum(result.paid for result in results) == 1
     assert sum(result.code == "payment_replayed" for result in results) == 11
     assert facilitator.settle_calls == 1
+
+
+def test_stellar_receipt_requires_context_network_hash_payer_and_amount() -> None:
+    from substrata.provider.gate import StellarProofIdentityExtractor
+
+    payload, requirement, payer = _stellar_payload()
+
+    class ReceiptFacilitator:
+        def __init__(self, receipt):
+            self.receipt = receipt
+
+        def verify(self, payload, requirements):
+            return VerifyResponse(True, payer=payer)
+
+        def settle(self, payload, requirements):
+            return self.receipt
+
+    replay = ReplayStore(":memory:")
+    bad = PaymentGate(
+        ReceiptFacilitator(
+            SettlementResponse(
+                True,
+                "0x" + "a" * 64,
+                requirement.network,
+                payer=payer,
+                amount=requirement.amount,
+            )
+        ),
+        replay,
+        proof_identity=StellarProofIdentityExtractor(),
+    ).process(
+        PaidRoute("/stellar", "POST", requirement, "https://api.example.test/stellar"),
+        PaymentPayload(
+            accepted=requirement,
+            resource=ResourceInfo(url="https://api.example.test/stellar"),
+            payload=payload.payload,
+        ),
+    )
+    assert bad.code == "settlement_failed"

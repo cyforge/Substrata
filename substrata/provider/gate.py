@@ -78,7 +78,7 @@ class PaidRoute:
         ):
             raise ValidationError("additional_requirements must contain payment requirements")
         offers = (self.requirements, *self.additional_requirements)
-        if len(set(offers)) != len(offers):
+        if any(offer in offers[:index] for index, offer in enumerate(offers)):
             raise ValidationError("route payment requirements must be unique")
         object.__setattr__(self, "additional_requirements", tuple(self.additional_requirements))
         if not isinstance(self.resource_url, str):
