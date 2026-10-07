@@ -161,9 +161,22 @@ class ASGIMiddleware(_MiddlewareBase):
     """Protect exact configured HTTP routes; all payment I/O runs off-loop."""
 
     def __init__(
-        self, app: ASGIApp, gate: PaymentGate, routes: Iterable[PaidRoute], **options: object
+        self,
+        app: ASGIApp,
+        gate: PaymentGate,
+        routes: Iterable[PaidRoute],
+        *,
+        trusted_origin: str,
+        header_limit: int = 1_500_000,
+        header_count_limit: int = 100,
     ) -> None:
-        super().__init__(gate, routes, **options)
+        super().__init__(
+            gate,
+            routes,
+            trusted_origin=trusted_origin,
+            header_limit=header_limit,
+            header_count_limit=header_count_limit,
+        )
         self.app = app
 
     async def __call__(
@@ -299,9 +312,22 @@ class WSGIMiddleware(_MiddlewareBase):
     """WSGI adapter that preserves returned iterator and close lifecycle."""
 
     def __init__(
-        self, app: WSGIApp, gate: PaymentGate, routes: Iterable[PaidRoute], **options: object
+        self,
+        app: WSGIApp,
+        gate: PaymentGate,
+        routes: Iterable[PaidRoute],
+        *,
+        trusted_origin: str,
+        header_limit: int = 1_500_000,
+        header_count_limit: int = 100,
     ) -> None:
-        super().__init__(gate, routes, **options)
+        super().__init__(
+            gate,
+            routes,
+            trusted_origin=trusted_origin,
+            header_limit=header_limit,
+            header_count_limit=header_count_limit,
+        )
         self.app = app
 
     def __call__(

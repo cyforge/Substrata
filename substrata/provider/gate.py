@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Callable, Protocol
 
 from substrata.audit import AuditLog
@@ -44,7 +44,6 @@ class PaidRoute:
     requirements: PaymentRequirements
     resource_url: str
     additional_requirements: tuple[PaymentRequirements, ...] = ()
-    handler: Callable[..., object] | None = field(default=None, repr=False, compare=False)
     resource: ResourceInfo | None = None
 
     def __post_init__(self) -> None:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 
+from substrata.errors import ValidationError
 from substrata.provider.gate import PaidRoute, PaymentGate
 from substrata.provider.middleware import ASGIMiddleware, WSGIMiddleware
 from substrata.storage import ReplayStore
@@ -285,3 +286,103 @@ def test_local_http_challenge_payment_and_receipt_round_trip() -> None:
         thread.join(timeout=2)
         server.server_close()
         replay.close()
+
+
+def test_wsgi_handler_error_after_settlement_keeps_receipt() -> None:
+    pair, route, payload, gate = route_fixture()
+
+    def app(environ, start_response):
+        raise RuntimeError("application internals must stay private")
+
+    wrapped = WSGIMiddleware(app, gate, [route], trusted_origin="http://127.0.0.1:8091")
+    response_meta: list[tuple[str, list[tuple[str, str]]]] = []
+
+    def start_response(status, headers, exc_info=None):
+        response_meta.append((status, headers))
+        return lambda body: None
+
+    body = list(
+        wrapped(
+            {
+                "REQUEST_METHOD": "GET",
+                "PATH_INFO": "/paid",
+                "HTTP_PAYMENT_SIGNATURE": encode_header(payload),
+            },
+            start_response,
+        )
+    )
+    assert response_meta[0][0].startswith("500")
+    assert any(name == "PAYMENT-RESPONSE" for name, _ in response_meta[0][1])
+    assert b"application_error" in body[0]
+    assert b"application internals" not in body[0]
+
+
+def test_asgi_handler_error_after_settlement_keeps_receipt() -> None:
+    _, route, payload, gate = route_fixture()
+
+    async def app(scope, receive, send):
+        raise RuntimeError("private application error")
+
+    wrapped = ASGIMiddleware(app, gate, [route], trusted_origin="http://127.0.0.1:8091")
+
+    async def invoke():
+        sent: list[dict[str, object]] = []
+
+        async def receive():
+            return {"type": "http.request", "body": b"", "more_body": False}
+
+        async def send(message):
+            sent.append(message)
+
+        await wrapped(
+            {
+                "type": "http",
+                "method": "GET",
+                "path": "/paid",
+                "query_string": b"",
+                "headers": [(b"payment-signature", encode_header(payload).encode())],
+            },
+            receive,
+            send,
+        )
+        return sent
+
+    response = asyncio.run(invoke())
+    assert response[0]["status"] == 500
+    assert any(name == b"PAYMENT-RESPONSE" for name, _ in response[0]["headers"])
+    assert b"application_error" in response[1]["body"]
+    assert b"private application error" not in response[1]["body"]
+
+
+def test_wsgi_coalesced_payment_headers_and_untrusted_origin_fail_closed() -> None:
+    _, route, payload, gate = route_fixture()
+    called = False
+
+    def app(environ, start_response):
+        nonlocal called
+        called = True
+        start_response("200 OK", [])
+        return [b"content"]
+
+    wrapped = WSGIMiddleware(app, gate, [route], trusted_origin="http://127.0.0.1:8091")
+    statuses: list[str] = []
+    body = list(
+        wrapped(
+            {
+                "REQUEST_METHOD": "GET",
+                "PATH_INFO": "/paid",
+                "HTTP_HOST": "attacker.example",
+                "HTTP_PAYMENT_SIGNATURE": encode_header(payload) + ", " + encode_header(payload),
+            },
+            lambda status, headers, exc_info=None: statuses.append(status) or (lambda data: None),
+        )
+    )
+    assert statuses[0].startswith("400")
+    assert b"invalid_payment_header" in body[0]
+    assert called is False
+    try:
+        WSGIMiddleware(app, gate, [route], trusted_origin="https://api.example.test")
+    except ValidationError:
+        pass
+    else:
+        raise AssertionError("route with a different origin must be rejected")
