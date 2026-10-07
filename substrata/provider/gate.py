@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Callable, Protocol
+from typing import Callable, Literal, Protocol, TypeAlias
 
 from substrata.audit import AuditLog
 from substrata.errors import ValidationError
@@ -31,6 +31,21 @@ class ProviderFacilitator(Protocol):
 
 
 ProofIdentity = Callable[[PaymentPayload, PaymentRequirements, VerifyResponse], str]
+GateCode: TypeAlias = Literal[
+    "invalid_payment",
+    "unsupported_payment",
+    "offer_mismatch",
+    "resource_mismatch",
+    "verification_unavailable",
+    "payment_invalid",
+    "proof_identity_invalid",
+    "payment_replayed",
+    "replay_store_unavailable",
+    "settlement_uncertain",
+    "settlement_failed",
+    "audit_unavailable",
+    "paid",
+]
 AuditWriter = Callable[[str, dict[str, str]], None]
 ProviderAudit = AuditLog | AuditWriter
 
@@ -87,7 +102,7 @@ class GateResult:
     """Outcome safe to expose to an application; never includes proof contents."""
 
     paid: bool
-    code: str
+    code: GateCode
     receipt: SettlementResponse | None = None
     proof_id: str | None = None
 
