@@ -290,7 +290,10 @@ def test_local_http_challenge_payment_and_receipt_round_trip() -> None:
         payload = pair.signer.sign(offer, challenge.resource)
         request = Request(
             f"{origin}/paid",
-            headers={"PAYMENT-SIGNATURE": encode_header(payload)},
+            headers={
+                "PAYMENT-SIGNATURE": encode_header(payload),
+                "Host": "attacker.example",
+            },
         )
         with urlopen(request, timeout=2) as response:
             assert response.status == 200
