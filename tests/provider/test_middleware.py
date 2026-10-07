@@ -176,8 +176,26 @@ def test_asgi_duplicate_header_lifespan_and_paid_execution_off_event_loop() -> N
             encode_header(payload).encode(),
         )
     ]
-    sent = asyncio.run(run(scope))
+
+    async def run_with_ticker():
+        ticking = True
+        ticks = 0
+
+        async def ticker():
+            nonlocal ticks
+            while ticking:
+                ticks += 1
+                await asyncio.sleep(0.001)
+
+        task = asyncio.create_task(ticker())
+        sent_messages = await run(scope)
+        ticking = False
+        await task
+        return sent_messages, ticks
+
+    sent, ticks = asyncio.run(run_with_ticker())
     assert sent[0]["status"] == 200
+    assert ticks >= 10
     response_headers = sent[0]["headers"]
     assert (b"Cache-Control", b"private, no-store") in response_headers
     assert any(name == b"PAYMENT-RESPONSE" for name, _ in response_headers)

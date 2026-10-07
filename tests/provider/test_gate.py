@@ -383,3 +383,62 @@ def test_route_challenge_and_gate_accept_all_configured_offers() -> None:
     alternate_payload = signer.sign(alternate, ResourceInfo(url=route.resource_url))
     result = PaymentGate(facilitator, ReplayStore(":memory:")).process(route, alternate_payload)
     assert result.paid is True
+
+
+def test_claim_store_failure_denies_without_settlement() -> None:
+    item = fixture()
+
+    class CountingFacilitator:
+        settle_calls = 0
+
+        def verify(self, payload, requirements):
+            return VerifyResponse(True, payer="demo-payer")
+
+        def settle(self, payload, requirements):
+            self.settle_calls += 1
+            return SettlementResponse(
+                True,
+                "demo:" + "a" * 64,
+                requirements.network,
+                payer="demo-payer",
+                amount=requirements.amount,
+            )
+
+    replay = ReplayStore(":memory:")
+    replay.close()
+    facilitator = CountingFacilitator()
+    result = PaymentGate(facilitator, replay).process(item.route, item.payload)
+    assert result.code == "replay_store_unavailable"
+    assert facilitator.settle_calls == 0
+
+
+def test_concurrent_requests_settle_once() -> None:
+    from concurrent.futures import ThreadPoolExecutor
+
+    item = fixture()
+
+    class CountingFacilitator:
+        def __init__(self):
+            self.settle_calls = 0
+
+        def verify(self, payload, requirements):
+            return VerifyResponse(True, payer="demo-payer")
+
+        def settle(self, payload, requirements):
+            self.settle_calls += 1
+            return SettlementResponse(
+                True,
+                "demo:" + "a" * 64,
+                requirements.network,
+                payer="demo-payer",
+                amount=requirements.amount,
+            )
+
+    replay = ReplayStore(":memory:")
+    facilitator = CountingFacilitator()
+    gate = PaymentGate(facilitator, replay)
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        results = list(pool.map(lambda _: gate.process(item.route, item.payload), range(12)))
+    assert sum(result.paid for result in results) == 1
+    assert sum(result.code == "payment_replayed" for result in results) == 11
+    assert facilitator.settle_calls == 1
