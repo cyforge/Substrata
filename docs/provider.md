@@ -1,6 +1,6 @@
 # Paid API providers
 
-`substrata.provider` protects configured HTTP routes with x402 v2 payment offers. Each route fixes its method, path, current `PaymentRequirements`, and canonical resource URL. Middleware ignores request `Host` and forwarded-host headers. Set `trusted_origin` to the origin clients should see, then use that same origin in each route URL.
+`substrata.provider` protects configured HTTP routes with x402 v2 payment offers. Each route fixes its method, path, one or more current `PaymentRequirements`, and canonical resource URL. Put alternate offers in `additional_requirements`; the challenge lists every configured offer. Middleware ignores request `Host` and forwarded-host headers. Set `trusted_origin` to the origin clients should see, then use that same origin in each route URL.
 
 ## Payment flow
 
@@ -63,4 +63,4 @@ Custom proof identity adapters must parse the signed authorization from a truste
 
 ## Response and failure behavior
 
-Challenges, malformed headers, and payment failures use machine-readable error codes. Middleware rejects duplicate x402 payment headers and oversized headers before calling the facilitator. Verify or replay-store outages and uncertain settlement return 503; no protected content is sent. A rejected receipt also blocks the handler. Configured audit logging must succeed before settlement proceeds; an audit write failure after settlement cannot undo the payment, so the paid response is retained.
+Challenges, malformed headers, and payment failures use machine-readable error codes. Middleware rejects duplicate x402 payment headers and oversized headers before calling the facilitator. Verify or replay-store outages and uncertain settlement return 503; no protected content is sent. A rejected receipt also blocks the handler. Configured audit logging must succeed before settlement proceeds. The gate records verify, replay, settlement, uncertainty, and handler outcomes without proof data. An audit write failure after settlement cannot undo the payment, so the paid response is retained.
