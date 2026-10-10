@@ -63,7 +63,14 @@ def test_wsgi_paid_response_adds_receipt_no_store_and_closes_iterator() -> None:
             closed = True
 
     def app(environ, start_response):
-        start_response("200 OK", [("Content-Type", "text/plain"), ("Cache-Control", "public")])
+        start_response(
+            "200 OK",
+            [
+                ("Content-Type", "text/plain"),
+                ("Cache-Control", "public"),
+                ("Vary", "Accept-Encoding"),
+            ],
+        )
         return Body()
 
     wrapped = WSGIMiddleware(app, gate, [route], trusted_origin="http://127.0.0.1:8091")
@@ -84,6 +91,7 @@ def test_wsgi_paid_response_adds_receipt_no_store_and_closes_iterator() -> None:
     assert list(body) == [b"protected"]
     assert any(name == "PAYMENT-RESPONSE" for name, _ in started[-1][1])
     assert ("Cache-Control", "private, no-store") in started[-1][1]
+    assert ("Vary", "Accept-Encoding, PAYMENT-SIGNATURE") in started[-1][1]
     body.close()
     assert closed
 
@@ -132,7 +140,13 @@ def test_asgi_duplicate_header_lifespan_and_paid_execution_off_event_loop() -> N
 
     async def app(scope, receive, send):
         events.append({"type": "app", "scope": scope})
-        await send({"type": "http.response.start", "status": 200, "headers": []})
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [(b"vary", b"Accept-Encoding")],
+            }
+        )
         await send({"type": "http.response.body", "body": b"content", "more_body": False})
 
     wrapped = ASGIMiddleware(app, gate, [route], trusted_origin="http://127.0.0.1:8091")
@@ -198,6 +212,7 @@ def test_asgi_duplicate_header_lifespan_and_paid_execution_off_event_loop() -> N
     assert ticks >= 10
     response_headers = sent[0]["headers"]
     assert (b"Cache-Control", b"private, no-store") in response_headers
+    assert (b"Vary", b"Accept-Encoding, PAYMENT-SIGNATURE") in response_headers
     assert any(name == b"PAYMENT-RESPONSE" for name, _ in response_headers)
     assert sync_calls == 1
 

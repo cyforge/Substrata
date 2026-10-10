@@ -99,11 +99,22 @@ class _MiddlewareBase:
         return decoded
 
     @staticmethod
-    def _response_headers(result: GateResult) -> list[tuple[str, str]]:
-        headers = [("Cache-Control", "private, no-store"), ("Vary", "PAYMENT-SIGNATURE")]
+    def _response_headers(
+        result: GateResult, *, vary: str = "PAYMENT-SIGNATURE"
+    ) -> list[tuple[str, str]]:
+        headers = [("Cache-Control", "private, no-store"), ("Vary", vary)]
         if result.response_header is not None:
             headers.append(("PAYMENT-RESPONSE", result.response_header))
         return headers
+
+    @staticmethod
+    def _merge_vary(values: Iterable[str]) -> str:
+        tokens = [token.strip() for value in values for token in value.split(",") if token.strip()]
+        if any(token == "*" for token in tokens):
+            return "*"
+        if not any(token.lower() == "payment-signature" for token in tokens):
+            tokens.append("PAYMENT-SIGNATURE")
+        return ", ".join(tokens)
 
     @staticmethod
     def _challenge(
@@ -254,6 +265,13 @@ class ASGIMiddleware(_MiddlewareBase):
                 existing = message.get("headers", [])
                 if not isinstance(existing, (list, tuple)):
                     existing = []
+                vary_values = [
+                    value.decode("latin-1")
+                    for name, value in existing
+                    if isinstance(name, bytes)
+                    and name.lower() == b"vary"
+                    and isinstance(value, bytes)
+                ]
                 clean = [
                     (name, value)
                     for name, value in existing
@@ -264,7 +282,9 @@ class ASGIMiddleware(_MiddlewareBase):
                 ]
                 clean.extend(
                     (name.encode("ascii"), value.encode("latin-1"))
-                    for name, value in self._response_headers(result)
+                    for name, value in self._response_headers(
+                        result, vary=self._merge_vary(vary_values)
+                    )
                 )
                 message = dict(message)
                 message["headers"] = clean
@@ -384,10 +404,13 @@ class WSGIMiddleware(_MiddlewareBase):
             nonlocal started
             started = True
             names = {"payment-response", "cache-control", "vary"}
+            vary_values = [value for name, value in response_headers if name.lower() == "vary"]
             filtered = [
                 (name, value) for name, value in response_headers if name.lower() not in names
             ]
-            return_headers = filtered + self._response_headers(result)
+            return_headers = filtered + self._response_headers(
+                result, vary=self._merge_vary(vary_values)
+            )
             return start_response(status, return_headers, exc_info)
 
         try:
