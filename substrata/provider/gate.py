@@ -225,6 +225,13 @@ class PaymentGate:
             return bool(re.fullmatch(r"[0-9a-fA-F]{64}", receipt.transaction))
         return False
 
+    def record_handler_outcome(self, status_code: int, *, failed: bool = False) -> None:
+        """Append a response status without changing already-settled payment state."""
+        if type(status_code) is not int or not 100 <= status_code <= 599:
+            return
+        event = "handler_failed" if failed else "handler_response"
+        self._audit(event, {"status": str(status_code)})
+
     @staticmethod
     def _supported(requirement: PaymentRequirements) -> bool:
         if requirement.scheme == "substrata-demo":

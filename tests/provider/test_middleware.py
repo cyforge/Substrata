@@ -422,3 +422,48 @@ def test_wsgi_coalesced_payment_headers_and_untrusted_origin_fail_closed() -> No
         pass
     else:
         raise AssertionError("route with a different origin must be rejected")
+
+
+def test_wsgi_stream_failure_is_audited_after_receipt_headers_are_set(tmp_path) -> None:
+    from substrata.audit import AuditLog
+
+    pair, route, payload, _ = route_fixture()
+    audit = AuditLog(tmp_path / "provider-audit.sqlite3")
+    gate = PaymentGate(pair.facilitator, ReplayStore(":memory:"), audit_log=audit)
+
+    class BrokenBody:
+        def __iter__(self):
+            yield b"partial"
+            raise RuntimeError("private stream detail")
+
+        def close(self):
+            return
+
+    def app(environ, start_response):
+        start_response("200 OK", [])
+        return BrokenBody()
+
+    wrapped = WSGIMiddleware(app, gate, [route], trusted_origin="http://127.0.0.1:8091")
+    headers: list[tuple[str, str]] = []
+    response = wrapped(
+        {
+            "REQUEST_METHOD": "GET",
+            "PATH_INFO": "/paid",
+            "HTTP_PAYMENT_SIGNATURE": encode_header(payload),
+        },
+        lambda status, response_headers, exc_info=None: (
+            headers.extend(response_headers) or (lambda data: None)
+        ),
+    )
+    assert any(name == "PAYMENT-RESPONSE" for name, _ in headers)
+    iterator = iter(response)
+    assert next(iterator) == b"partial"
+    try:
+        next(iterator)
+    except RuntimeError as exc:
+        assert "private stream detail" in str(exc)
+    else:
+        raise AssertionError("broken stream exception should propagate")
+    events = audit.list_events(event_type="provider.handler_failed")
+    assert events[-1]["data"] == {"status": "200"}
+    audit.close()

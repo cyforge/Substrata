@@ -257,11 +257,15 @@ class ASGIMiddleware(_MiddlewareBase):
             return
 
         response_started = False
+        response_status = 500
+        handler_outcome_recorded = False
 
         async def paid_send(message: dict[str, object]) -> None:
-            nonlocal response_started
+            nonlocal response_started, response_status, handler_outcome_recorded
             if message.get("type") == "http.response.start":
                 response_started = True
+                status = message.get("status")
+                response_status = status if type(status) is int else 500
                 existing = message.get("headers", [])
                 if not isinstance(existing, (list, tuple)):
                     existing = []
@@ -289,10 +293,19 @@ class ASGIMiddleware(_MiddlewareBase):
                 message = dict(message)
                 message["headers"] = clean
             await send(message)
+            if (
+                message.get("type") == "http.response.body"
+                and message.get("more_body") is not True
+                and response_started
+                and not handler_outcome_recorded
+            ):
+                self.gate.record_handler_outcome(response_status)
+                handler_outcome_recorded = True
 
         try:
             await self.app(scope, receive, paid_send)
         except Exception:
+            self.gate.record_handler_outcome(response_status, failed=True)
             if response_started:
                 raise
             await self._send_error_with_headers(
@@ -395,14 +408,19 @@ class WSGIMiddleware(_MiddlewareBase):
             return self._wsgi_response(start_response, *self._failed_gate(route, result))
 
         started = False
+        response_status = 500
 
         def paid_start_response(
             status: str,
             response_headers: list[tuple[str, str]],
             exc_info: tuple[type[BaseException], BaseException, object] | None = None,
         ) -> Callable[[bytes], object]:
-            nonlocal started
+            nonlocal started, response_status
             started = True
+            try:
+                response_status = int(status.split(" ", 1)[0])
+            except (ValueError, IndexError):
+                response_status = 500
             names = {"payment-response", "cache-control", "vary"}
             vary_values = [value for name, value in response_headers if name.lower() == "vary"]
             filtered = [
@@ -416,12 +434,17 @@ class WSGIMiddleware(_MiddlewareBase):
         try:
             iterable = self.app(environ, paid_start_response)
         except Exception:
+            self.gate.record_handler_outcome(response_status, failed=True)
             if started:
                 raise
             status, headers, body = self._error(500, "application_error")
             headers.extend(self._response_headers(result))
             return self._wsgi_response(start_response, status, headers, body)
-        return _ClosingIterator(iterable)
+        return _ClosingIterator(
+            iterable,
+            on_complete=lambda: self.gate.record_handler_outcome(response_status),
+            on_failure=lambda: self.gate.record_handler_outcome(response_status, failed=True),
+        )
 
     @staticmethod
     def _wsgi_response(
@@ -442,17 +465,40 @@ class WSGIMiddleware(_MiddlewareBase):
 
 
 class _ClosingIterator:
-    def __init__(self, iterable: Iterable[bytes]) -> None:
+    def __init__(
+        self,
+        iterable: Iterable[bytes],
+        *,
+        on_complete: Callable[[], None],
+        on_failure: Callable[[], None],
+    ) -> None:
         self.iterable = iterable
         self.iterator = iter(iterable)
+        self.on_complete = on_complete
+        self.on_failure = on_failure
+        self.finished = False
 
     def __iter__(self) -> _ClosingIterator:
         return self
 
     def __next__(self) -> bytes:
-        return next(self.iterator)
+        try:
+            return next(self.iterator)
+        except StopIteration:
+            if not self.finished:
+                self.finished = True
+                self.on_complete()
+            raise
+        except Exception:
+            if not self.finished:
+                self.finished = True
+                self.on_failure()
+            raise
 
     def close(self) -> None:
         close = getattr(self.iterable, "close", None)
         if callable(close):
             close()
+        if not self.finished:
+            self.finished = True
+            self.on_failure()
