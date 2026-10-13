@@ -467,3 +467,29 @@ def test_wsgi_stream_failure_is_audited_after_receipt_headers_are_set(tmp_path) 
     events = audit.list_events(event_type="provider.handler_failed")
     assert events[-1]["data"] == {"status": "200"}
     audit.close()
+
+
+def test_non_loopback_provider_origin_requires_https() -> None:
+    _, route, _, gate = route_fixture()
+
+    async def app(scope, receive, send):
+        return None
+
+    try:
+        ASGIMiddleware(
+            app,
+            gate,
+            [PaidRoute("/paid", "GET", route.requirements, "http://api.example.test/paid")],
+            trusted_origin="http://api.example.test",
+        )
+    except ValidationError:
+        pass
+    else:
+        raise AssertionError("external paid origins must use HTTPS")
+
+    ASGIMiddleware(
+        app,
+        gate,
+        [PaidRoute("/paid", "GET", route.requirements, "https://api.example.test/paid")],
+        trusted_origin="https://api.example.test",
+    )

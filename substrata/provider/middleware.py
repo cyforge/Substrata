@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import json
 from collections.abc import Awaitable, Callable, Iterable
 from typing import Protocol
@@ -59,6 +60,14 @@ class _MiddlewareBase:
     ) -> None:
         self.gate = gate
         self.trusted_origin = normalize_origin(trusted_origin)
+        trusted_parts = urlsplit(self.trusted_origin)
+        hostname = trusted_parts.hostname or ""
+        try:
+            loopback = ipaddress.ip_address(hostname).is_loopback
+        except ValueError:
+            loopback = hostname.lower() == "localhost"
+        if trusted_parts.scheme != "https" and not loopback:
+            raise ValidationError("trusted_origin must use HTTPS outside loopback")
         if type(header_limit) is not int or not 1024 <= header_limit <= 2_000_000:
             raise ValidationError("header_limit must be from 1024 to 2000000 bytes")
         if type(header_count_limit) is not int or not 1 <= header_count_limit <= 1000:
