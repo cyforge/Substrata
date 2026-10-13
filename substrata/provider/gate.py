@@ -59,6 +59,7 @@ class PaidRoute:
     requirements: PaymentRequirements
     resource_url: str
     additional_requirements: tuple[PaymentRequirements, ...] = ()
+    root_path: str = ""
     resource: ResourceInfo | None = None
 
     def __post_init__(self) -> None:
@@ -66,6 +67,12 @@ class PaidRoute:
             raise ValidationError("route path must start with /")
         if self.path != "/" and self.path.endswith("/"):
             raise ValidationError("route path must be canonical without trailing slash")
+        if not isinstance(self.root_path, str) or (
+            self.root_path and not self.root_path.startswith("/")
+        ):
+            raise ValidationError("route root_path must be empty or start with /")
+        if self.root_path != "/" and self.root_path.endswith("/"):
+            raise ValidationError("route root_path must be canonical without trailing slash")
         if not isinstance(self.method, str) or not re.fullmatch(
             r"[!#$%&'*+.^_`|~0-9A-Za-z-]+", self.method
         ):

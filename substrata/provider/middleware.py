@@ -84,12 +84,31 @@ class _MiddlewareBase:
             parts = urlsplit(route.resource_url)
             if normalize_origin(f"{parts.scheme}://{parts.netloc}") != self.trusted_origin:
                 raise ValidationError("paid route resource must use trusted_origin")
-            if parts.path != route.path:
-                raise ValidationError("paid route resource path must match route path")
+            expected_path = route.root_path.rstrip("/") + route.path
+            if parts.path != expected_path:
+                raise ValidationError(
+                    "paid route resource path must match route root_path and path"
+                )
             self.routes[key] = route
 
     def _route(self, method: str, path: str) -> PaidRoute | None:
-        return self.routes.get((method.upper(), path))
+        direct = self.routes.get((method.upper(), path))
+        if direct is not None:
+            return direct
+        for (route_method, _), route in self.routes.items():
+            full_path = route.root_path.rstrip("/") + route.path
+            if route_method == method.upper() and path == full_path:
+                return route
+        return None
+
+    @staticmethod
+    def _mount_matches(route: PaidRoute, path: str, mount_path: str) -> bool:
+        if not route.root_path:
+            return path == route.path and mount_path == ""
+        full_path = route.root_path.rstrip("/") + route.path
+        return (path == route.path and mount_path == route.root_path) or (
+            path == full_path and mount_path == ""
+        )
 
     @staticmethod
     def _query_matches(route: PaidRoute, query: str) -> bool:
@@ -217,6 +236,10 @@ class ASGIMiddleware(_MiddlewareBase):
         route = self._route(method, path)
         if route is None:
             await self.app(scope, receive, send)
+            return
+        root_path = scope.get("root_path", "")
+        if not isinstance(root_path, str) or not self._mount_matches(route, path, root_path):
+            await self._send_error(send, 400, "resource_mismatch")
             return
         raw_query = scope.get("query_string", b"")
         if not isinstance(raw_query, bytes):
@@ -384,6 +407,9 @@ class WSGIMiddleware(_MiddlewareBase):
         route = self._route(method, path)
         if route is None:
             return self.app(environ, start_response)
+        script_name = environ.get("SCRIPT_NAME", "")
+        if not isinstance(script_name, str) or not self._mount_matches(route, path, script_name):
+            return self._wsgi_response(start_response, *self._error(400, "resource_mismatch"))
         raw_query = environ.get("QUERY_STRING", "")
         if not isinstance(raw_query, str) or not raw_query.isascii():
             return self._wsgi_response(start_response, *self._error(400, "invalid_request"))

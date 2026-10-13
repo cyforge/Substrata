@@ -167,7 +167,7 @@ def test_asgi_duplicate_header_lifespan_and_paid_execution_off_event_loop() -> N
         "type": "http",
         "method": "GET",
         "path": "/paid",
-        "root_path": "/mounted",
+        "root_path": "",
         "query_string": b"",
         "headers": [
             (
@@ -535,3 +535,73 @@ def test_wsgi_close_failure_is_audited_after_payment(tmp_path) -> None:
     events = audit.list_events(event_type="provider.handler_failed")
     assert events[-1]["data"] == {"status": "200"}
     audit.close()
+
+
+def test_asgi_and_wsgi_mount_paths_bind_canonical_external_resource() -> None:
+    pair = create_local_demo_pair()
+    requirements = PaymentRequirements("substrata-demo", "stellar:testnet", "7", "XLM", "GTEST", 60)
+    route = PaidRoute(
+        "/paid",
+        "GET",
+        requirements,
+        "https://localhost/mount/paid",
+        root_path="/mount",
+    )
+    payload = pair.signer.sign(requirements, ResourceInfo(url=route.resource_url))
+    gate = PaymentGate(pair.facilitator, ReplayStore(":memory:"))
+
+    async def asgi_app(scope, receive, send):
+        await send({"type": "http.response.start", "status": 200, "headers": []})
+        await send({"type": "http.response.body", "body": b"asgi", "more_body": False})
+
+    asgi = ASGIMiddleware(asgi_app, gate, [route], trusted_origin="https://localhost")
+
+    async def invoke_asgi():
+        sent: list[dict[str, object]] = []
+
+        async def receive():
+            return {"type": "http.request", "body": b"", "more_body": False}
+
+        async def send(message):
+            sent.append(message)
+
+        await asgi(
+            {
+                "type": "http",
+                "method": "GET",
+                "path": "/paid",
+                "root_path": "/mount",
+                "query_string": b"",
+                "headers": [(b"payment-signature", encode_header(payload).encode())],
+            },
+            receive,
+            send,
+        )
+        return sent
+
+    asgi_response = asyncio.run(invoke_asgi())
+    assert asgi_response[0]["status"] == 200
+
+    pair2 = create_local_demo_pair()
+    wsgi_payload = pair2.signer.sign(requirements, ResourceInfo(url=route.resource_url))
+    wsgi_gate = PaymentGate(pair2.facilitator, ReplayStore(":memory:"))
+
+    def wsgi_app(environ, start_response):
+        start_response("200 OK", [])
+        return [b"wsgi"]
+
+    wsgi = WSGIMiddleware(wsgi_app, wsgi_gate, [route], trusted_origin="https://localhost")
+    statuses: list[str] = []
+    response = list(
+        wsgi(
+            {
+                "REQUEST_METHOD": "GET",
+                "SCRIPT_NAME": "/mount",
+                "PATH_INFO": "/paid",
+                "HTTP_PAYMENT_SIGNATURE": encode_header(wsgi_payload),
+            },
+            lambda status, headers, exc_info=None: statuses.append(status) or (lambda data: None),
+        )
+    )
+    assert statuses[0].startswith("200")
+    assert response == [b"wsgi"]
