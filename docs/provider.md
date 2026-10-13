@@ -1,6 +1,6 @@
 # Paid API providers
 
-`substrata.provider` protects configured HTTP routes with x402 v2 payment offers. Each route fixes its method, path, one or more current `PaymentRequirements`, and canonical resource URL. Put alternate offers in `additional_requirements`; the challenge lists every configured offer. Middleware ignores request `Host` and forwarded-host headers. Set `trusted_origin` to the origin clients should see, then use that same origin in each route URL.
+`substrata.provider` protects configured HTTP routes with x402 v2 payment offers. Each route fixes its method, path, one or more current `PaymentRequirements`, and canonical resource URL. Put alternate offers in `additional_requirements`; the challenge lists every configured offer. Middleware ignores request `Host` and forwarded-host headers. Set `trusted_origin` to the origin clients should see, then use that same origin in each route URL. External origins require HTTPS; plain HTTP works only for loopback development.
 
 ## Payment flow
 
