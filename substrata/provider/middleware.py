@@ -505,9 +505,11 @@ class _ClosingIterator:
             raise
 
     def close(self) -> None:
-        close = getattr(self.iterable, "close", None)
-        if callable(close):
-            close()
-        if not self.finished:
-            self.finished = True
-            self.on_failure()
+        try:
+            close = getattr(self.iterable, "close", None)
+            if callable(close):
+                close()
+        finally:
+            if not self.finished:
+                self.finished = True
+                self.on_failure()

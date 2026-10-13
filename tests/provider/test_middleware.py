@@ -493,3 +493,45 @@ def test_non_loopback_provider_origin_requires_https() -> None:
         [PaidRoute("/paid", "GET", route.requirements, "https://api.example.test/paid")],
         trusted_origin="https://api.example.test",
     )
+
+
+def test_wsgi_close_failure_is_audited_after_payment(tmp_path) -> None:
+    from substrata.audit import AuditLog
+
+    pair, route, payload, _ = route_fixture()
+    audit = AuditLog(tmp_path / "provider-close-audit.sqlite3")
+    gate = PaymentGate(pair.facilitator, ReplayStore(":memory:"), audit_log=audit)
+
+    class BrokenClose:
+        def __iter__(self):
+            return iter(())
+
+        def close(self):
+            raise RuntimeError("private close error")
+
+    def app(environ, start_response):
+        start_response("200 OK", [])
+        return BrokenClose()
+
+    wrapped = WSGIMiddleware(app, gate, [route], trusted_origin="http://127.0.0.1:8091")
+    headers: list[tuple[str, str]] = []
+    response = wrapped(
+        {
+            "REQUEST_METHOD": "GET",
+            "PATH_INFO": "/paid",
+            "HTTP_PAYMENT_SIGNATURE": encode_header(payload),
+        },
+        lambda status, response_headers, exc_info=None: (
+            headers.extend(response_headers) or (lambda data: None)
+        ),
+    )
+    assert any(name == "PAYMENT-RESPONSE" for name, _ in headers)
+    try:
+        response.close()
+    except RuntimeError as exc:
+        assert "private close error" in str(exc)
+    else:
+        raise AssertionError("close exception should propagate")
+    events = audit.list_events(event_type="provider.handler_failed")
+    assert events[-1]["data"] == {"status": "200"}
+    audit.close()
