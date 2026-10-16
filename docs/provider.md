@@ -43,7 +43,7 @@ from substrata.provider import ASGIMiddleware
 app = ASGIMiddleware(asgi_app, gate, [route], trusted_origin="https://api.example.test")
 ```
 
-ASGI passes lifespan and WebSocket scopes to the wrapped app. Synchronous verification, replay storage, and settlement run in worker threads. `OPTIONS` and routes absent from the configured table pass through unchanged. Query strings must match the query configured in the route URL; other queries fail with `resource_mismatch`.
+ASGI passes lifespan and WebSocket scopes to the wrapped app. Synchronous verification, replay storage, and settlement run in worker threads. `OPTIONS` and routes absent from the configured table pass through unchanged. Query strings must match the query configured in the route URL; other queries fail with `resource_mismatch`. For mounted apps, set `PaidRoute.root_path` to the trusted mount prefix. ASGI `root_path` and WSGI `SCRIPT_NAME` then bind the request path to the same external URL.
 
 ## Stellar proofs
 
