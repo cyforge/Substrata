@@ -65,8 +65,6 @@ class PaidRoute:
     def __post_init__(self) -> None:
         if not isinstance(self.path, str) or not self.path.startswith("/"):
             raise ValidationError("route path must start with /")
-        if self.path != "/" and self.path.endswith("/"):
-            raise ValidationError("route path must be canonical without trailing slash")
         if not isinstance(self.root_path, str) or (
             self.root_path and not self.root_path.startswith("/")
         ):
@@ -78,6 +76,8 @@ class PaidRoute:
         ):
             raise ValidationError("route method must be an HTTP token")
         object.__setattr__(self, "method", self.method.upper())
+        if self.method == "OPTIONS":
+            raise ValidationError("OPTIONS cannot be configured as a paid route")
         if not isinstance(self.requirements, PaymentRequirements):
             raise ValidationError("route requirements must be PaymentRequirements")
         if not isinstance(self.additional_requirements, (tuple, list)) or any(

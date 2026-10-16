@@ -135,7 +135,13 @@ def test_asgi_duplicate_header_lifespan_and_paid_execution_off_event_loop() -> N
         def settle(self, payload, requirements):
             return pair.facilitator.settle(payload, requirements)
 
-    gate = PaymentGate(SlowFacilitator(), gate.replay_store)
+    def slow_audit(event, data):
+        if event == "handler_response":
+            import time
+
+            time.sleep(0.04)
+
+    gate = PaymentGate(SlowFacilitator(), gate.replay_store, audit_log=slow_audit)
     events: list[dict[str, object]] = []
 
     async def app(scope, receive, send):
@@ -209,7 +215,7 @@ def test_asgi_duplicate_header_lifespan_and_paid_execution_off_event_loop() -> N
 
     sent, ticks = asyncio.run(run_with_ticker())
     assert sent[0]["status"] == 200
-    assert ticks >= 10
+    assert ticks >= 55
     response_headers = sent[0]["headers"]
     assert (b"Cache-Control", b"private, no-store") in response_headers
     assert (b"Vary", b"Accept-Encoding, PAYMENT-SIGNATURE") in response_headers
@@ -605,3 +611,123 @@ def test_asgi_and_wsgi_mount_paths_bind_canonical_external_resource() -> None:
     )
     assert statuses[0].startswith("200")
     assert response == [b"wsgi"]
+
+    full_route_pair = create_local_demo_pair()
+    full_route = PaidRoute(
+        "/mount/paid",
+        "GET",
+        requirements,
+        "https://localhost/mount/paid",
+    )
+    full_payload = full_route_pair.signer.sign(
+        requirements, ResourceInfo(url=full_route.resource_url)
+    )
+    full_gate = PaymentGate(full_route_pair.facilitator, ReplayStore(":memory:"))
+    full_wsgi = WSGIMiddleware(
+        wsgi_app, full_gate, [full_route], trusted_origin="https://localhost"
+    )
+    full_status: list[str] = []
+    full_body = list(
+        full_wsgi(
+            {
+                "REQUEST_METHOD": "GET",
+                "SCRIPT_NAME": "/mount",
+                "PATH_INFO": "/paid",
+                "HTTP_PAYMENT_SIGNATURE": encode_header(full_payload),
+            },
+            lambda status, headers, exc_info=None: (
+                full_status.append(status) or (lambda data: None)
+            ),
+        )
+    )
+    assert full_status[0].startswith("200")
+    assert full_body == [b"wsgi"]
+
+
+def test_asgi_full_path_and_root_path_match_same_configured_resource() -> None:
+    pair = create_local_demo_pair()
+    requirements = PaymentRequirements("substrata-demo", "stellar:testnet", "7", "XLM", "GTEST", 60)
+    route = PaidRoute(
+        "/app/paid",
+        "GET",
+        requirements,
+        "https://localhost/app/paid",
+    )
+    payload = pair.signer.sign(requirements, ResourceInfo(url=route.resource_url))
+    gate = PaymentGate(pair.facilitator, ReplayStore(":memory:"))
+    handled: list[dict[str, object]] = []
+
+    async def app(scope, receive, send):
+        handled.append(scope)
+        await send({"type": "http.response.start", "status": 200, "headers": []})
+        await send({"type": "http.response.body", "body": b"paid", "more_body": False})
+
+    wrapped = ASGIMiddleware(app, gate, [route], trusted_origin="https://localhost")
+
+    async def invoke():
+        sent: list[dict[str, object]] = []
+
+        async def receive():
+            return {"type": "http.request", "body": b"", "more_body": False}
+
+        async def send(message):
+            sent.append(message)
+
+        scope = {
+            "type": "http",
+            "method": "GET",
+            "path": "/app/paid",
+            "root_path": "/app",
+            "query_string": b"",
+            "headers": [(b"payment-signature", encode_header(payload).encode())],
+        }
+        await wrapped(scope, receive, send)
+        return sent, scope
+
+    response, original_scope = asyncio.run(invoke())
+    assert response[0]["status"] == 200
+    assert handled == [original_scope]
+    assert original_scope["path"] == "/app/paid"
+    assert original_scope["root_path"] == "/app"
+
+
+def test_paid_options_routes_are_rejected_and_trailing_slash_routes_match() -> None:
+    pair, route, payload, gate = route_fixture()
+    try:
+        PaidRoute(
+            "/paid",
+            "OPTIONS",
+            route.requirements,
+            route.resource_url,
+        )
+    except ValidationError:
+        pass
+    else:
+        raise AssertionError("OPTIONS cannot be configured as a paid route")
+
+    slash_route = PaidRoute(
+        "/paid/",
+        "GET",
+        route.requirements,
+        "http://127.0.0.1:8091/paid/",
+    )
+    slash_payload = pair.signer.sign(route.requirements, ResourceInfo(url=slash_route.resource_url))
+
+    def app(environ, start_response):
+        start_response("200 OK", [])
+        return [b"paid-slash"]
+
+    wrapped = WSGIMiddleware(app, gate, [slash_route], trusted_origin="http://127.0.0.1:8091")
+    statuses: list[str] = []
+    result = list(
+        wrapped(
+            {
+                "REQUEST_METHOD": "GET",
+                "PATH_INFO": "/paid/",
+                "HTTP_PAYMENT_SIGNATURE": encode_header(slash_payload),
+            },
+            lambda status, headers, exc_info=None: statuses.append(status) or (lambda data: None),
+        )
+    )
+    assert statuses[0].startswith("200")
+    assert result == [b"paid-slash"]

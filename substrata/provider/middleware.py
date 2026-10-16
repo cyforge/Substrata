@@ -91,24 +91,35 @@ class _MiddlewareBase:
                 )
             self.routes[key] = route
 
-    def _route(self, method: str, path: str) -> PaidRoute | None:
-        direct = self.routes.get((method.upper(), path))
+    def _route(self, method: str, path: str, mount_path: str = "") -> PaidRoute | None:
+        method = method.upper()
+        direct = self.routes.get((method, path))
         if direct is not None:
             return direct
+        external_path = mount_path.rstrip("/") + path
+        mounted = self.routes.get((method, external_path))
+        if mounted is not None:
+            return mounted
         for (route_method, _), route in self.routes.items():
-            full_path = route.root_path.rstrip("/") + route.path
-            if route_method == method.upper() and path == full_path:
+            configured_path = route.root_path.rstrip("/") + route.path
+            if route_method == method and path == configured_path:
                 return route
         return None
 
     @staticmethod
     def _mount_matches(route: PaidRoute, path: str, mount_path: str) -> bool:
-        if not route.root_path:
-            return path == route.path and mount_path == ""
-        full_path = route.root_path.rstrip("/") + route.path
-        return (path == route.path and mount_path == route.root_path) or (
-            path == full_path and mount_path == ""
-        )
+        configured_path = route.root_path.rstrip("/") + route.path
+        external_path = mount_path.rstrip("/") + path
+        if external_path == configured_path:
+            return True
+        # Some ASGI servers report full path together with root_path.
+        if (
+            path == configured_path
+            and mount_path
+            and configured_path.startswith(mount_path.rstrip("/") + "/")
+        ):
+            return True
+        return path == configured_path and not mount_path
 
     @staticmethod
     def _query_matches(route: PaidRoute, query: str) -> bool:
@@ -233,12 +244,15 @@ class ASGIMiddleware(_MiddlewareBase):
         if method.upper() == "OPTIONS":
             await self.app(scope, receive, send)
             return
-        route = self._route(method, path)
+        root_path = scope.get("root_path", "")
+        if not isinstance(root_path, str):
+            await self._send_error(send, 400, "invalid_request")
+            return
+        route = self._route(method, path, root_path)
         if route is None:
             await self.app(scope, receive, send)
             return
-        root_path = scope.get("root_path", "")
-        if not isinstance(root_path, str) or not self._mount_matches(route, path, root_path):
+        if not self._mount_matches(route, path, root_path):
             await self._send_error(send, 400, "resource_mismatch")
             return
         raw_query = scope.get("query_string", b"")
@@ -331,13 +345,13 @@ class ASGIMiddleware(_MiddlewareBase):
                 and response_started
                 and not handler_outcome_recorded
             ):
-                self.gate.record_handler_outcome(response_status)
+                await asyncio.to_thread(self.gate.record_handler_outcome, response_status)
                 handler_outcome_recorded = True
 
         try:
             await self.app(scope, receive, paid_send)
         except Exception:
-            self.gate.record_handler_outcome(response_status, failed=True)
+            await asyncio.to_thread(self.gate.record_handler_outcome, response_status, failed=True)
             if response_started:
                 raise
             await self._send_error_with_headers(
@@ -404,11 +418,13 @@ class WSGIMiddleware(_MiddlewareBase):
             return self.app(environ, start_response)
         if method.upper() == "OPTIONS":
             return self.app(environ, start_response)
-        route = self._route(method, path)
+        script_name = environ.get("SCRIPT_NAME", "")
+        if not isinstance(script_name, str):
+            return self._wsgi_response(start_response, *self._error(400, "invalid_request"))
+        route = self._route(method, path, script_name)
         if route is None:
             return self.app(environ, start_response)
-        script_name = environ.get("SCRIPT_NAME", "")
-        if not isinstance(script_name, str) or not self._mount_matches(route, path, script_name):
+        if not self._mount_matches(route, path, script_name):
             return self._wsgi_response(start_response, *self._error(400, "resource_mismatch"))
         raw_query = environ.get("QUERY_STRING", "")
         if not isinstance(raw_query, str) or not raw_query.isascii():
