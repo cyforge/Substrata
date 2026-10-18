@@ -16,6 +16,13 @@ ORIGIN = f"http://{HOST}:{PORT}"
 
 
 def application(environ, start_response):
+    if environ.get("PATH_INFO") == "/paid" and environ.get("REQUEST_METHOD") != "GET":
+        body = b'{"error":"method_not_allowed"}'
+        start_response(
+            "405 Method Not Allowed",
+            [("Content-Type", "application/json"), ("Content-Length", str(len(body)))],
+        )
+        return [body]
     if environ.get("PATH_INFO") == "/paid":
         body = json.dumps({"message": "paid content"}).encode("utf-8")
         start_response(
