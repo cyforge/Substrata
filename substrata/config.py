@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass
+from urllib.parse import urlsplit
 
 from .constants import DEFAULT_ENVIRONMENT, DEFAULT_LOG_LEVEL, DEFAULT_NETWORK, Environment, Network
 from .errors import ConfigurationError
@@ -15,6 +16,7 @@ DEFAULT_HORIZON_URLS = {
 }
 DEFAULT_SIGNER_BACKEND = "local"
 DEFAULT_ASSET_CODE = "XLM"
+VALID_LOG_LEVELS = frozenset({"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"})
 
 
 def _parse_enum(name: str, value: str, enum_type: type[Environment] | type[Network]):
@@ -73,6 +75,10 @@ class SubstrataSettings:
     debug: bool = False
 
     def __post_init__(self) -> None:
+        if not isinstance(self.environment, Environment):
+            raise ConfigurationError("Invalid environment. Use a supported Environment value.")
+        if not isinstance(self.network, Network):
+            raise ConfigurationError("Invalid network. Use a supported Network value.")
         normalized_log_level = _parse_required_text("log_level", self.log_level).upper()
         normalized_horizon_url = _parse_required_text("horizon_url", self.horizon_url)
         normalized_signer_backend = _parse_required_text(
@@ -84,6 +90,27 @@ class SubstrataSettings:
             self.default_asset_code,
         ).upper()
         normalized_asset_issuer = _parse_optional_text(self.default_asset_issuer)
+
+        if normalized_log_level not in VALID_LOG_LEVELS:
+            raise ConfigurationError(
+                "Invalid log_level. Expected DEBUG, INFO, WARNING, ERROR, or CRITICAL.",
+                details={"field": "log_level"},
+            )
+
+        parts = urlsplit(normalized_horizon_url)
+        if (
+            parts.scheme not in {"http", "https"}
+            or not parts.hostname
+            or parts.username is not None
+            or parts.password is not None
+            or parts.query
+            or parts.fragment
+        ):
+            raise ConfigurationError(
+                "Invalid horizon_url. Expected an HTTP(S) URL without credentials, query, "
+                "or fragment.",
+                details={"field": "horizon_url"},
+            )
 
         if len(normalized_asset_code) > 12 or not normalized_asset_code.isalnum():
             raise ConfigurationError(
@@ -118,7 +145,7 @@ class SubstrataSettings:
 
     @classmethod
     def from_env(cls, environ: Mapping[str, str] | None = None) -> "SubstrataSettings":
-        source = environ or os.environ
+        source = os.environ if environ is None else environ
 
         environment = _parse_enum(
             "SUBSTRATA_ENVIRONMENT",

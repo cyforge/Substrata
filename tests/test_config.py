@@ -1,6 +1,7 @@
 import pytest
 
 from substrata import load_settings
+from substrata.config import SubstrataSettings
 from substrata.constants import DEFAULT_ENVIRONMENT, DEFAULT_NETWORK, Environment, Network
 from substrata.errors import ConfigurationError
 
@@ -15,6 +16,14 @@ def test_load_settings_uses_defaults_when_env_is_missing():
     assert settings.signer_backend == "local"
     assert settings.default_asset_reference == "XLM"
     assert settings.debug is False
+
+
+def test_empty_mapping_does_not_read_process_environment(monkeypatch):
+    monkeypatch.setenv("SUBSTRATA_NETWORK", Network.STELLAR_MAINNET.value)
+
+    settings = load_settings({})
+
+    assert settings.network is DEFAULT_NETWORK
 
 
 def test_load_settings_parses_valid_environment_values():
@@ -53,3 +62,37 @@ def test_load_settings_rejects_invalid_debug_flag():
 def test_load_settings_rejects_issued_asset_without_issuer():
     with pytest.raises(ConfigurationError):
         load_settings({"SUBSTRATA_DEFAULT_ASSET_CODE": "USDC"})
+
+
+@pytest.mark.parametrize("level", ["TRACE", "VERBOSE", "INFO;DROP TABLE"])
+def test_load_settings_rejects_unknown_log_level(level):
+    with pytest.raises(ConfigurationError, match="log_level"):
+        load_settings({"SUBSTRATA_LOG_LEVEL": level})
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "file:///tmp/horizon",
+        "https://user:password@example.test",
+        "https://example.test?token=secret",
+        "https://example.test#secret",
+        "//example.test/path",
+    ],
+)
+def test_load_settings_rejects_unsafe_horizon_urls(url):
+    with pytest.raises(ConfigurationError, match="horizon_url") as error:
+        load_settings({"SUBSTRATA_HORIZON_URL": url})
+
+    assert "password" not in str(error.value)
+    assert "secret" not in str(error.value)
+
+
+def test_direct_settings_constructor_validates_log_level():
+    with pytest.raises(ConfigurationError, match="log_level"):
+        SubstrataSettings(log_level="TRACE")
+
+
+def test_direct_settings_constructor_validates_enum_types():
+    with pytest.raises(ConfigurationError, match="network"):
+        SubstrataSettings(network="stellar_testnet")
