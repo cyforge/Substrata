@@ -103,9 +103,17 @@ class SubstrataSettings:
             )
 
         parts = urlsplit(normalized_horizon_url)
+        try:
+            _ = parts.port
+        except ValueError as exc:
+            raise ConfigurationError(
+                "Invalid horizon_url. Expected a valid HTTP(S) host and port.",
+                details={"field": "horizon_url"},
+            ) from exc
         if (
             parts.scheme not in {"http", "https"}
             or not parts.hostname
+            or any(character.isspace() for character in parts.hostname)
             or parts.username is not None
             or parts.password is not None
             or parts.query

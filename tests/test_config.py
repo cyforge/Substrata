@@ -77,6 +77,8 @@ def test_load_settings_rejects_unknown_log_level(level):
         "https://user:password@example.test",
         "https://example.test?token=secret",
         "https://example.test#secret",
+        "https://example.test:99999/horizon",
+        "https://bad host/horizon",
         "//example.test/path",
     ],
 )
