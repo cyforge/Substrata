@@ -1,5 +1,6 @@
 import json
 from decimal import Decimal
+from pathlib import Path
 
 from substrata.audit import AuditLog
 from substrata.cli import main
@@ -34,6 +35,97 @@ def test_doctor_checks_local_sqlite_path(tmp_path, capsys):
 
     assert database.exists()
     assert "accessible" in capsys.readouterr().out
+
+
+def _write_policy(path: Path, **overrides):
+    policy = {
+        "allowed_networks": ["stellar_testnet"],
+        "allowed_recipients": ["GRECIPIENT"],
+        "allowed_assets": [{"code": "XLM", "issuer": None, "contract_id": None}],
+        "max_payment": "5",
+        "daily_limit": "10",
+        "total_limit": "20",
+    }
+    policy.update(overrides)
+    path.write_text(json.dumps(policy))
+
+
+def test_policy_cli_validates_and_evaluates_without_reserving(tmp_path, capsys):
+    policy_path = tmp_path / "policy.json"
+    database = tmp_path / "policy.sqlite3"
+    _write_policy(policy_path)
+
+    assert main(["policy", "validate", str(policy_path)]) == 0
+    assert json.loads(capsys.readouterr().out)["max_payment"] == "5"
+
+    assert main(
+        [
+            "policy",
+            "evaluate",
+            str(policy_path),
+            "--recipient",
+            "GRECIPIENT",
+            "--amount",
+            "2",
+            "--network",
+            "stellar_testnet",
+            "--request-id",
+            "request-1",
+            "--database",
+            str(database),
+        ]
+    ) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["allowed"] is True
+
+    with Ledger(database) as ledger:
+        assert ledger.count_entries() == 0
+
+
+def test_policy_cli_uses_ledger_spend_and_denies_over_daily_limit(tmp_path, capsys):
+    policy_path = tmp_path / "policy.json"
+    database = tmp_path / "policy.sqlite3"
+    _write_policy(policy_path)
+    with Ledger(database) as ledger:
+        entry = ledger.reserve(
+            "existing-payment",
+            Decimal("9"),
+            currency="stellar_testnet:XLM",
+        )
+        ledger.commit(entry.request_id)
+
+    result_code = main(
+        [
+            "policy",
+            "evaluate",
+            str(policy_path),
+            "--recipient",
+            "GRECIPIENT",
+            "--amount",
+            "2",
+            "--network",
+            "stellar_testnet",
+            "--request-id",
+            "request-2",
+            "--database",
+            str(database),
+        ]
+    )
+    result = json.loads(capsys.readouterr().out)
+    assert result_code == 1
+    assert result["reason_code"] == "daily_limit_exceeded"
+
+
+def test_policy_cli_rejects_duplicate_and_unknown_json_fields(tmp_path, capsys):
+    duplicate_path = tmp_path / "duplicate.json"
+    duplicate_path.write_text('{"allowed_networks": [], "allowed_networks": []}')
+    assert main(["policy", "validate", str(duplicate_path)]) == 2
+    assert "duplicate" in capsys.readouterr().err
+
+    unknown_path = tmp_path / "unknown.json"
+    _write_policy(unknown_path, allow_everything=True)
+    assert main(["policy", "validate", str(unknown_path)]) == 2
+    assert "Unknown policy fields" in capsys.readouterr().err
 
 
 def test_ledger_cli_lists_exports_and_reconciles(tmp_path, capsys):

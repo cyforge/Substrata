@@ -7,13 +7,17 @@ import json
 import sys
 from collections.abc import Sequence
 from dataclasses import asdict
+from decimal import Decimal
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
 from . import __version__
 from .audit import AuditLog
 from .config import load_settings
+from .constants import Network
 from .errors import SubstrataError
+from .models import Asset, PaymentRequest
+from .policy import PolicyEngine, SpendPolicy
 from .storage import Ledger, LedgerStatus
 
 
@@ -36,6 +40,25 @@ def _parser() -> argparse.ArgumentParser:
 
     doctor = commands.add_parser("doctor", help="check local configuration and database access")
     _add_database_argument(doctor)
+
+    policy = commands.add_parser("policy", help="validate or evaluate a spend policy")
+    policy_commands = policy.add_subparsers(dest="policy_command", required=True)
+    validate = policy_commands.add_parser("validate", help="validate a JSON policy file")
+    validate.add_argument("policy_file", type=Path)
+    evaluate = policy_commands.add_parser("evaluate", help="evaluate one payment request")
+    evaluate.add_argument("policy_file", type=Path)
+    evaluate.add_argument("--recipient", required=True)
+    evaluate.add_argument("--amount", required=True)
+    evaluate.add_argument("--asset-code", default="XLM")
+    evaluate.add_argument("--asset-issuer")
+    evaluate.add_argument("--asset-contract-id")
+    evaluate.add_argument(
+        "--network", choices=[network.value for network in Network], required=True
+    )
+    evaluate.add_argument("--request-id", required=True)
+    evaluate.add_argument("--resource")
+    evaluate.add_argument("--origin")
+    _add_database_argument(evaluate)
 
     ledger = commands.add_parser("ledger", help="inspect and reconcile payment records")
     ledger_commands = ledger.add_subparsers(dest="ledger_command", required=True)
@@ -96,6 +119,23 @@ def _json_line(value: object) -> str:
     return json.dumps(value, default=str, sort_keys=True, separators=(",", ":"))
 
 
+def _unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("Policy JSON contains duplicate object keys.")
+        result[key] = value
+    return result
+
+
+def _load_policy(path: Path) -> SpendPolicy:
+    data = path.read_bytes()
+    if len(data) > 1_048_576:
+        raise ValueError("Policy file exceeds 1 MiB.")
+    value = json.loads(data.decode("utf-8"), object_pairs_hook=_unique_object)
+    return SpendPolicy.from_dict(value)
+
+
 def _run(args: argparse.Namespace) -> int:
     if args.command == "config":
         settings = load_settings()
@@ -123,6 +163,36 @@ def _run(args: argparse.Namespace) -> int:
         print(f"Configuration valid ({settings.environment.value}, {settings.network.value}).")
         print(f"Ledger and audit database accessible at {args.database}.")
         return 0
+
+    if args.command == "policy":
+        spend_policy = _load_policy(args.policy_file)
+        if args.policy_command == "validate":
+            print(json.dumps(spend_policy.to_dict(), indent=2, sort_keys=True))
+            return 0
+        asset = Asset(
+            code=args.asset_code,
+            issuer=args.asset_issuer,
+            contract_id=args.asset_contract_id,
+        )
+        request = PaymentRequest(
+            recipient=args.recipient,
+            amount=Decimal(args.amount),
+            asset=asset,
+            network=Network(args.network),
+            request_id=args.request_id,
+            resource=args.resource,
+            origin=args.origin,
+        )
+        with Ledger(args.database) as ledger:
+            spent_total = ledger.spent(request.currency_key)
+            spent_today = ledger.spent_today(request.currency_key)
+        decision = PolicyEngine(spend_policy).evaluate(
+            request,
+            spent_total=spent_total,
+            spent_today=spent_today,
+        )
+        print(_json_line(decision))
+        return 0 if decision.allowed else 1
 
     if args.command == "ledger":
         with Ledger(args.database) as ledger:

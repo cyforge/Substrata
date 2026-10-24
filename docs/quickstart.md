@@ -30,6 +30,23 @@ python -m substrata audit export --database /tmp/substrata.sqlite3
 
 The CLI prints ledger and audit exports as JSON Lines. Add `--currency`, `--status`, or `--request-id` to filter records. Use `--limit` and `--offset` to page through list results.
 
+## Check a spend policy
+
+The repository includes [a sample policy](../examples/spend-policy.json). Validate its structure, then evaluate a payment against the current ledger totals:
+
+```bash
+python -m substrata policy validate examples/spend-policy.json
+python -m substrata policy evaluate examples/spend-policy.json \
+  --recipient GRECIPIENT \
+  --amount 1.25 \
+  --asset-code XLM \
+  --network stellar_testnet \
+  --request-id request-123 \
+  --database /tmp/substrata.sqlite3
+```
+
+Evaluation is read only. It does not reserve budget or authorize a later payment by itself. The caller must reserve spend through the payment workflow before signing.
+
 ## Reconcile a payment
 
 Reconcile only after checking the payment result with the responsible facilitator or settlement system. Mark a payment settled with its transaction identifier:

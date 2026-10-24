@@ -20,7 +20,7 @@ python -m substrata config show
 python -m substrata doctor --database /tmp/substrata.sqlite3
 ```
 
-The CLI can list or export ledger and audit records, check audit integrity, and reconcile a recorded payment after an operator confirms its outcome. See [the quickstart](docs/quickstart.md) for command examples.
+The CLI can validate policies, evaluate a request against recorded spend, inspect ledger and audit records, and reconcile a payment after an operator confirms its outcome. See [the quickstart](docs/quickstart.md) for command examples.
 
 ## Development
 
