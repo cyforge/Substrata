@@ -96,3 +96,9 @@ def test_direct_settings_constructor_validates_log_level():
 def test_direct_settings_constructor_validates_enum_types():
     with pytest.raises(ConfigurationError, match="network"):
         SubstrataSettings(network="stellar_testnet")
+
+
+def test_direct_settings_constructor_derives_horizon_from_network():
+    settings = SubstrataSettings(network=Network.STELLAR_MAINNET)
+
+    assert settings.horizon_url == "https://horizon.stellar.org"

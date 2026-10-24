@@ -68,7 +68,7 @@ class SubstrataSettings:
     environment: Environment = DEFAULT_ENVIRONMENT
     network: Network = DEFAULT_NETWORK
     log_level: str = DEFAULT_LOG_LEVEL
-    horizon_url: str = DEFAULT_HORIZON_URLS[DEFAULT_NETWORK]
+    horizon_url: str | None = None
     signer_backend: str = DEFAULT_SIGNER_BACKEND
     default_asset_code: str = DEFAULT_ASSET_CODE
     default_asset_issuer: str | None = None
@@ -80,7 +80,12 @@ class SubstrataSettings:
         if not isinstance(self.network, Network):
             raise ConfigurationError("Invalid network. Use a supported Network value.")
         normalized_log_level = _parse_required_text("log_level", self.log_level).upper()
-        normalized_horizon_url = _parse_required_text("horizon_url", self.horizon_url)
+        horizon_url = (
+            DEFAULT_HORIZON_URLS[self.network]
+            if self.horizon_url is None
+            else self.horizon_url
+        )
+        normalized_horizon_url = _parse_required_text("horizon_url", horizon_url)
         normalized_signer_backend = _parse_required_text(
             "signer_backend",
             self.signer_backend,
