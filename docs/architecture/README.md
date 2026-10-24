@@ -13,11 +13,11 @@ implementation references that explain how the Substrata package is organized.
 ## Current Notes
 
 - Package foundation overview:
-  [docs/architecture/foundation.md](/Users/Apple/dev/os/mann/Substrata/docs/architecture/foundation.md)
+  [docs/architecture/foundation.md](foundation.md)
 - Package foundation and entrypoints:
-  [README.md](/Users/Apple/dev/os/mann/Substrata/README.md)
+  [README.md](../../README.md)
 - Development workflow and local commands:
-  [docs/development.md](/Users/Apple/dev/os/mann/Substrata/docs/development.md)
+  [docs/development.md](../development.md)
 
 ## Future Additions
 

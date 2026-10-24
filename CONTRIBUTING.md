@@ -4,10 +4,10 @@ Thanks for contributing to Substrata.
 
 ## Before You Start
 
-- Read the [README.md](/Users/Apple/dev/os/mann/Substrata/README.md) for project context.
-- Follow the setup steps in [docs/development.md](/Users/Apple/dev/os/mann/Substrata/docs/development.md).
-- Read the community expectations in [CODE_OF_CONDUCT.md](/Users/Apple/dev/os/mann/Substrata/CODE_OF_CONDUCT.md).
-- Check [SECURITY.md](/Users/Apple/dev/os/mann/Substrata/SECURITY.md) before reporting vulnerabilities.
+- Read the [README.md](README.md) for project context.
+- Follow the setup steps in [docs/development.md](docs/development.md).
+- Read the community expectations in [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
+- Check [SECURITY.md](SECURITY.md) before reporting vulnerabilities.
 
 ## Picking Work
 
@@ -18,7 +18,7 @@ Thanks for contributing to Substrata.
 
 ## Local Setup
 
-Use the documented setup flow in [docs/development.md](/Users/Apple/dev/os/mann/Substrata/docs/development.md).
+Use the documented setup flow in [docs/development.md](docs/development.md).
 
 At a minimum, contributors should be able to run:
 
@@ -53,4 +53,4 @@ ruff check .
 ## Questions and Support
 
 - Use repository issues for contributor-facing questions unless maintainers request a different channel.
-- For security-sensitive findings, follow [SECURITY.md](/Users/Apple/dev/os/mann/Substrata/SECURITY.md) instead of opening a public issue.
+- For security-sensitive findings, follow [SECURITY.md](SECURITY.md) instead of opening a public issue.
