@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sqlite3
 import sys
 from collections.abc import Sequence
 from dataclasses import asdict
@@ -19,6 +20,22 @@ from .errors import SubstrataError
 from .models import Asset, PaymentRequest
 from .policy import PolicyEngine, SpendPolicy
 from .storage import Ledger, LedgerStatus
+
+_SENSITIVE_KEY_PARTS = (
+    "secret",
+    "private",
+    "token",
+    "credential",
+    "password",
+    "passphrase",
+    "mnemonic",
+    "seed",
+    "apikey",
+    "accesskey",
+    "authorization",
+    "signature",
+    "signingkey",
+)
 
 
 def _version() -> str:
@@ -40,6 +57,7 @@ def _parser() -> argparse.ArgumentParser:
 
     doctor = commands.add_parser("doctor", help="check local configuration and database access")
     _add_database_argument(doctor)
+    doctor.add_argument("--init", action="store_true", help="create the database if missing")
 
     policy = commands.add_parser("policy", help="validate or evaluate a spend policy")
     policy_commands = policy.add_subparsers(dest="policy_command", required=True)
@@ -97,6 +115,13 @@ def _add_database_argument(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--database", type=Path, default=Path("substrata.sqlite3"))
 
 
+def _require_database(path: Path) -> None:
+    if not path.is_file():
+        raise ValueError(
+            f"Database does not exist at {path}; run `substrata doctor --init --database {path}`."
+        )
+
+
 def _positive_int(value: str) -> int:
     parsed = int(value)
     if parsed < 1:
@@ -116,7 +141,26 @@ def _json_line(value: object) -> str:
         value = asdict(value)
     if hasattr(value, "value"):
         value = value.value
+    value = _redact_sensitive_fields(value)
     return json.dumps(value, default=str, sort_keys=True, separators=(",", ":"))
+
+
+def _redact_sensitive_fields(value: object) -> object:
+    if isinstance(value, dict):
+        clean: dict[str, object] = {}
+        for key, item in value.items():
+            name = "".join(character for character in str(key).lower() if character.isalnum())
+            clean[str(key)] = (
+                "[REDACTED]"
+                if any(part in name for part in _SENSITIVE_KEY_PARTS)
+                else _redact_sensitive_fields(item)
+            )
+        return clean
+    if isinstance(value, list):
+        return [_redact_sensitive_fields(item) for item in value]
+    if isinstance(value, tuple):
+        return [_redact_sensitive_fields(item) for item in value]
+    return value
 
 
 def _unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
@@ -128,12 +172,39 @@ def _unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
     return result
 
 
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"Policy JSON contains unsupported constant {value}.")
+
+
 def _load_policy(path: Path) -> SpendPolicy:
-    data = path.read_bytes()
+    with path.open("rb") as source:
+        data = source.read(1_048_577)
     if len(data) > 1_048_576:
         raise ValueError("Policy file exceeds 1 MiB.")
-    value = json.loads(data.decode("utf-8"), object_pairs_hook=_unique_object)
+    try:
+        value = json.loads(
+            data.decode("utf-8"),
+            object_pairs_hook=_unique_object,
+            parse_constant=_reject_json_constant,
+        )
+    except RecursionError as exc:
+        raise ValueError("Policy JSON exceeds supported nesting depth.") from exc
     return SpendPolicy.from_dict(value)
+
+
+def _audit_manual_reconciliation(database: Path, request_id: str, status: LedgerStatus) -> None:
+    try:
+        with AuditLog(database) as audit_log:
+            audit_log.append(
+                "ledger.manual_reconciliation",
+                request_id=request_id,
+                data={"status": status.value, "source": "cli"},
+            )
+    except (SubstrataError, OSError, sqlite3.Error) as exc:
+        raise SubstrataError(
+            "Ledger changed, but reconciliation audit logging failed. "
+            "Inspect ledger before retrying."
+        ) from exc
 
 
 def _run(args: argparse.Namespace) -> int:
@@ -158,10 +229,13 @@ def _run(args: argparse.Namespace) -> int:
 
     if args.command == "doctor":
         settings = load_settings()
+        if not args.init:
+            _require_database(args.database)
         with Ledger(args.database), AuditLog(args.database):
             pass
         print(f"Configuration valid ({settings.environment.value}, {settings.network.value}).")
-        print(f"Ledger and audit database accessible at {args.database}.")
+        state = "initialized" if args.init else "accessible"
+        print(f"Ledger and audit database {state} at {args.database}.")
         return 0
 
     if args.command == "policy":
@@ -183,6 +257,7 @@ def _run(args: argparse.Namespace) -> int:
             resource=args.resource,
             origin=args.origin,
         )
+        _require_database(args.database)
         with Ledger(args.database) as ledger:
             spent_total = ledger.spent(request.currency_key)
             spent_today = ledger.spent_today(request.currency_key)
@@ -195,6 +270,7 @@ def _run(args: argparse.Namespace) -> int:
         return 0 if decision.allowed else 1
 
     if args.command == "ledger":
+        _require_database(args.database)
         with Ledger(args.database) as ledger:
             if args.ledger_command == "list":
                 for entry in ledger.list_entries(
@@ -206,23 +282,24 @@ def _run(args: argparse.Namespace) -> int:
                     print(_json_line(entry))
                 return 0
             if args.ledger_command == "export":
-                print(
-                    ledger.export_jsonl(
-                        currency=args.currency,
-                        status=args.status,
-                    ),
-                    end="",
-                )
+                for entry in ledger.iter_entries(
+                    currency=args.currency,
+                    status=args.status,
+                ):
+                    print(_json_line(entry))
                 return 0
             if args.ledger_command == "reconcile-settled":
                 entry = ledger.commit(args.request_id, settlement_id=args.settlement_id)
+                _audit_manual_reconciliation(args.database, entry.request_id, entry.status)
                 print(_json_line(entry))
                 return 0
             entry = ledger.release(args.request_id, reason=args.reason)
+            _audit_manual_reconciliation(args.database, entry.request_id, entry.status)
             print(_json_line(entry))
             return 0
 
     if args.command == "audit":
+        _require_database(args.database)
         with AuditLog(args.database) as audit_log:
             if args.audit_command == "verify":
                 result = audit_log.inspect_chain()

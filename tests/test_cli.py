@@ -1,9 +1,13 @@
 import json
+import subprocess
+import sys
 from decimal import Decimal
 from pathlib import Path
 
+import pytest
+
 from substrata.audit import AuditLog
-from substrata.cli import main
+from substrata.cli import entrypoint, main
 from substrata.storage import Ledger
 
 
@@ -16,6 +20,29 @@ def test_cli_main_without_args_keeps_runtime_compatibility(monkeypatch):
 
     assert main() == 0
     assert calls == [True]
+
+
+def test_console_entrypoint_forwards_process_arguments(monkeypatch, capsys):
+    monkeypatch.setattr("sys.argv", ["substrata", "--version"])
+
+    with pytest.raises(SystemExit) as exit_info:
+        entrypoint()
+
+    assert exit_info.value.code == 0
+    assert capsys.readouterr().out.startswith("substrata ")
+
+
+def test_package_and_compatibility_entrypoints_forward_arguments():
+    repo_root = Path(__file__).resolve().parents[1]
+    for command in ([sys.executable, "-m", "substrata"], [sys.executable, "main.py"]):
+        result = subprocess.run(
+            [*command, "--version"],
+            cwd=repo_root,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        assert result.stdout.startswith("substrata ")
 
 
 def test_config_show_prints_validated_nonsecret_settings(monkeypatch, capsys):
@@ -31,10 +58,13 @@ def test_config_show_prints_validated_nonsecret_settings(monkeypatch, capsys):
 def test_doctor_checks_local_sqlite_path(tmp_path, capsys):
     database = tmp_path / "local.sqlite3"
 
-    assert main(["doctor", "--database", str(database)]) == 0
+    assert main(["doctor", "--database", str(database)]) == 2
+    assert "doctor --init" in capsys.readouterr().err
+
+    assert main(["doctor", "--init", "--database", str(database)]) == 0
 
     assert database.exists()
-    assert "accessible" in capsys.readouterr().out
+    assert "initialized" in capsys.readouterr().out
 
 
 def _write_policy(path: Path, **overrides):
@@ -54,6 +84,8 @@ def test_policy_cli_validates_and_evaluates_without_reserving(tmp_path, capsys):
     policy_path = tmp_path / "policy.json"
     database = tmp_path / "policy.sqlite3"
     _write_policy(policy_path)
+    with Ledger(database):
+        pass
 
     assert main(["policy", "validate", str(policy_path)]) == 0
     assert json.loads(capsys.readouterr().out)["max_payment"] == "5"
@@ -128,15 +160,38 @@ def test_policy_cli_rejects_duplicate_and_unknown_json_fields(tmp_path, capsys):
     assert "Unknown policy fields" in capsys.readouterr().err
 
 
+def test_policy_cli_bounds_files_and_rejects_nonfinite_json(tmp_path, capsys):
+    oversized_path = tmp_path / "oversized.json"
+    oversized_path.write_bytes(b" " * 1_048_577)
+    assert main(["policy", "validate", str(oversized_path)]) == 2
+    assert "exceeds 1 MiB" in capsys.readouterr().err
+
+    nonfinite_path = tmp_path / "nonfinite.json"
+    nonfinite_path.write_text('{"daily_limit": NaN}')
+    assert main(["policy", "validate", str(nonfinite_path)]) == 2
+    assert "unsupported constant" in capsys.readouterr().err
+
+    nested_path = tmp_path / "nested.json"
+    nested_path.write_text("[" * 1200 + "0" + "]" * 1200)
+    assert main(["policy", "validate", str(nested_path)]) == 2
+    assert "nesting depth" in capsys.readouterr().err
+
+
 def test_ledger_cli_lists_exports_and_reconciles(tmp_path, capsys):
     database = tmp_path / "ledger.sqlite3"
     with Ledger(database) as ledger:
-        ledger.reserve("req-1", Decimal("1.25"), currency="stellar:testnet:XLM")
+        ledger.reserve(
+            "req-1",
+            Decimal("1.25"),
+            currency="stellar:testnet:XLM",
+            metadata={"api_key": "dont-print", "note": "visible"},
+        )
 
     assert main(["ledger", "list", "--database", str(database)]) == 0
     listed = json.loads(capsys.readouterr().out)
     assert listed["request_id"] == "req-1"
     assert listed["status"] == "pending"
+    assert listed["metadata"] == {"api_key": "[REDACTED]", "note": "visible"}
 
     assert main(
         [
@@ -156,6 +211,12 @@ def test_ledger_cli_lists_exports_and_reconciles(tmp_path, capsys):
     ) == 0
     exported = json.loads(capsys.readouterr().out)
     assert exported["settlement_id"] == "demo:tx-1"
+    assert exported["metadata"]["api_key"] == "[REDACTED]"
+
+    assert main(["audit", "list", "--database", str(database), "--request-id", "req-1"]) == 0
+    reconciliation = json.loads(capsys.readouterr().out)
+    assert reconciliation["event_type"] == "ledger.manual_reconciliation"
+    assert reconciliation["data"] == {"source": "cli", "status": "settled"}
 
 
 def test_audit_cli_lists_exports_and_verifies(tmp_path, capsys):
@@ -181,3 +242,37 @@ def test_cli_errors_are_concise_and_use_nonzero_exit(capsys):
     assert output.out == ""
     assert output.err.startswith("substrata:")
     assert "password" not in output.err
+
+
+def test_read_only_commands_do_not_create_missing_database(tmp_path, capsys):
+    database = tmp_path / "missing.sqlite3"
+    policy_path = tmp_path / "policy.json"
+    _write_policy(policy_path)
+
+    assert main(["ledger", "list", "--database", str(database)]) == 2
+    assert "doctor --init" in capsys.readouterr().err
+    assert not database.exists()
+
+    assert main(["audit", "verify", "--database", str(database)]) == 2
+    assert "doctor --init" in capsys.readouterr().err
+    assert not database.exists()
+
+    assert main(
+        [
+            "policy",
+            "evaluate",
+            str(policy_path),
+            "--recipient",
+            "GRECIPIENT",
+            "--amount",
+            "1",
+            "--network",
+            "stellar_testnet",
+            "--request-id",
+            "request-1",
+            "--database",
+            str(database),
+        ]
+    ) == 2
+    assert "doctor --init" in capsys.readouterr().err
+    assert not database.exists()
