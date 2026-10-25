@@ -28,14 +28,14 @@ Build wheel and source archive:
 python -m build
 ```
 
-CI runs these checks on Python 3.11 through 3.14, then builds and invokes the CLI from a wheel.
+CI runs these checks on Python 3.11 through 3.14, then builds and invokes the installed console command from a wheel. A separate Python 3.11 job runs tests with the optional Stellar SDK installed.
 
 ## Run the CLI
 
 ```bash
 python -m substrata --help
 python -m substrata config show
-python -m substrata doctor --database /tmp/substrata.sqlite3
+python -m substrata doctor --init --database /tmp/substrata.sqlite3
 ```
 
 See [the quickstart](quickstart.md) for ledger and audit commands.

@@ -10,16 +10,16 @@ python -m pip install -e ".[dev]"
 
 ## Inspect settings
 
-The CLI reads settings from `SUBSTRATA_` environment variables. `config show` prints the validated non-secret settings. `doctor` checks the configuration and opens the local SQLite database at the selected path.
+The CLI reads settings from `SUBSTRATA_` environment variables. `config show` prints the validated non-secret settings. Use `doctor --init` to create the local SQLite database. Run `doctor` without `--init` to check an existing database.
 
 ```bash
 python -m substrata config show
-python -m substrata doctor --database /tmp/substrata.sqlite3
+python -m substrata doctor --init --database /tmp/substrata.sqlite3
 ```
 
 ## Inspect local records
 
-Ledger and audit commands create the selected SQLite database if it does not exist. The ledger stores payment amounts and their current state. Audit records include redacted event data and an integrity chain.
+Ledger and audit read commands require an initialized database. The ledger stores payment amounts and their current state. Audit records include redacted event data and an integrity chain.
 
 ```bash
 python -m substrata ledger list --database /tmp/substrata.sqlite3
@@ -36,6 +36,7 @@ The repository includes [a sample policy](../examples/spend-policy.json). Valida
 
 ```bash
 python -m substrata policy validate examples/spend-policy.json
+python -m substrata doctor --init --database /tmp/substrata.sqlite3
 python -m substrata policy evaluate examples/spend-policy.json \
   --recipient GRECIPIENT \
   --amount 1.25 \
@@ -65,4 +66,4 @@ python -m substrata ledger reconcile-failed REQUEST_ID \
   --database /tmp/substrata.sqlite3
 ```
 
-These commands change the local ledger only. They do not submit, retry, or verify a Stellar transaction.
+These commands change the local ledger and append a redacted audit event. They do not submit, retry, or verify a Stellar transaction.
