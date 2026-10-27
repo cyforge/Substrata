@@ -20,6 +20,8 @@ from .errors import SubstrataError
 from .models import Asset, PaymentRequest
 from .policy import PolicyEngine, SpendPolicy
 from .storage import Ledger, LedgerStatus
+from .x402.codec import MAX_HEADER_CHARS, MAX_JSON_BYTES, decode_header, decode_json
+from .x402.models import PaymentPayload, PaymentRequired, SettlementResponse
 
 _SENSITIVE_KEY_PARTS = (
     "secret",
@@ -108,6 +110,18 @@ def _parser() -> argparse.ArgumentParser:
         if action == "list":
             child.add_argument("--limit", type=_positive_int, default=100)
             child.add_argument("--offset", type=_nonnegative_int, default=0)
+
+    protocol = commands.add_parser("protocol", help="inspect bounded x402 wire data")
+    protocol_commands = protocol.add_subparsers(dest="protocol_command", required=True)
+    inspect = protocol_commands.add_parser("inspect", help="decode a JSON body or HTTP header")
+    inspect.add_argument("kind", choices=("required", "signature", "response"))
+    inspect.add_argument("--file", type=Path, help="read input from a file instead of stdin")
+    inspect.add_argument("--format", choices=("json", "header"), default="json")
+    inspect.add_argument(
+        "--show-payload",
+        action="store_true",
+        help="include signed payment payload in output (signature kind only)",
+    )
     return parser
 
 
@@ -205,6 +219,19 @@ def _audit_manual_reconciliation(database: Path, request_id: str, status: Ledger
             "Ledger changed, but reconciliation audit logging failed. "
             "Inspect ledger before retrying."
         ) from exc
+
+
+def _read_protocol_input(path: Path | None, limit: int) -> bytes:
+    if path is not None:
+        with path.open("rb") as source:
+            data = source.read(limit + 1)
+    else:
+        source = getattr(sys.stdin, "buffer", sys.stdin)
+        value = source.read(limit + 1)
+        data = value.encode("utf-8") if isinstance(value, str) else value
+    if len(data) > limit:
+        raise ValueError("Protocol input exceeds supported size.")
+    return data
 
 
 def _run(args: argparse.Namespace) -> int:
@@ -315,6 +342,38 @@ def _run(args: argparse.Namespace) -> int:
                 return 0
             print(audit_log.export_jsonl(request_id=args.request_id), end="")
             return 0
+
+    if args.command == "protocol":
+        model_types = {
+            "required": (PaymentRequired, "PAYMENT-REQUIRED"),
+            "signature": (PaymentPayload, "PAYMENT-SIGNATURE"),
+            "response": (SettlementResponse, "PAYMENT-RESPONSE"),
+        }
+        model_type, header_name = model_types[args.kind]
+        if args.show_payload and args.kind != "signature":
+            raise ValueError("--show-payload applies only to signature input.")
+        limit = MAX_HEADER_CHARS if args.format == "header" else MAX_JSON_BYTES
+        data = _read_protocol_input(args.file, limit)
+        if args.format == "json":
+            model = decode_json(data, model_type)
+        else:
+            try:
+                value = data.decode("ascii").strip()
+            except UnicodeDecodeError as exc:
+                raise ValueError("Protocol header input must be ASCII.") from exc
+            if "\n" in value or "\r" in value:
+                raise ValueError("Protocol header input must contain one header line.")
+            if ":" in value:
+                supplied_name, separator, header_value = value.partition(":")
+                if not separator or supplied_name.strip().upper() != header_name:
+                    raise ValueError(f"Expected {header_name} header.")
+                value = header_value.strip()
+            model = decode_header(value, model_type)
+        output = model.to_dict()
+        if args.kind == "signature" and not args.show_payload:
+            output["payload"] = "[REDACTED]"
+        print(json.dumps(output, indent=2, sort_keys=True, allow_nan=False))
+        return 0
 
     raise AssertionError(f"Unhandled command: {args.command}")
 

@@ -1,3 +1,4 @@
+import io
 import json
 import subprocess
 import sys
@@ -9,6 +10,17 @@ import pytest
 from substrata.audit import AuditLog
 from substrata.cli import entrypoint, main
 from substrata.storage import Ledger
+from substrata.x402.codec import encode_header, encode_json
+from substrata.x402.models import PaymentPayload, PaymentRequired, SettlementResponse
+
+_REQUIREMENTS = {
+    "scheme": "substrata-demo",
+    "network": "stellar:testnet",
+    "amount": "100",
+    "asset": "XLM",
+    "payTo": "GRECIPIENT",
+    "maxTimeoutSeconds": 60,
+}
 
 
 def test_cli_main_without_args_keeps_runtime_compatibility(monkeypatch):
@@ -43,6 +55,76 @@ def test_package_and_compatibility_entrypoints_forward_arguments():
             text=True,
         )
         assert result.stdout.startswith("substrata ")
+
+
+def test_protocol_inspect_decodes_json_and_http_headers(tmp_path, capsys, monkeypatch):
+    required = PaymentRequired.from_dict(
+        {
+            "x402Version": 2,
+            "resource": {"url": "http://127.0.0.1:8080/data"},
+            "accepts": [_REQUIREMENTS],
+        }
+    )
+    body_path = tmp_path / "required.json"
+    body_path.write_bytes(encode_json(required))
+    assert main(["protocol", "inspect", "required", "--file", str(body_path)]) == 0
+    assert json.loads(capsys.readouterr().out)["accepts"][0]["scheme"] == "substrata-demo"
+
+    payment = PaymentPayload.from_dict(
+        {
+            "x402Version": 2,
+            "accepted": _REQUIREMENTS,
+            "payload": {"signature": "signed-secret-value"},
+        }
+    )
+    monkeypatch.setattr("sys.stdin", io.StringIO(encode_header(payment)))
+    assert main(["protocol", "inspect", "signature", "--format", "header"]) == 0
+    redacted = capsys.readouterr().out
+    assert json.loads(redacted)["payload"] == "[REDACTED]"
+    assert "signed-secret-value" not in redacted
+
+    monkeypatch.setattr("sys.stdin", io.StringIO(encode_json(payment).decode()))
+    assert (
+        main(
+            [
+                "protocol",
+                "inspect",
+                "signature",
+                "--show-payload",
+            ]
+        )
+        == 0
+    )
+    assert json.loads(capsys.readouterr().out)["payload"]["signature"] == "signed-secret-value"
+
+    response = SettlementResponse(True, "demo:tx", "stellar:testnet")
+    header_path = tmp_path / "response.header"
+    header_path.write_text(f"PAYMENT-RESPONSE: {encode_header(response)}\n")
+    assert (
+        main(
+            [
+                "protocol",
+                "inspect",
+                "response",
+                "--format",
+                "header",
+                "--file",
+                str(header_path),
+            ]
+        )
+        == 0
+    )
+    assert json.loads(capsys.readouterr().out)["transaction"] == "demo:tx"
+
+
+def test_protocol_inspect_bounds_input_and_rejects_wrong_header(capsys, monkeypatch):
+    monkeypatch.setattr("sys.stdin", io.StringIO(" " * (1_048_577)))
+    assert main(["protocol", "inspect", "required"]) == 2
+    assert "exceeds supported size" in capsys.readouterr().err
+
+    monkeypatch.setattr("sys.stdin", io.StringIO("PAYMENT-SIGNATURE: e30="))
+    assert main(["protocol", "inspect", "required", "--format", "header"]) == 2
+    assert "Expected PAYMENT-REQUIRED" in capsys.readouterr().err
 
 
 def test_config_show_prints_validated_nonsecret_settings(monkeypatch, capsys):
