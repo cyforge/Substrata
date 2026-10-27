@@ -79,6 +79,7 @@ def test_load_settings_rejects_unknown_log_level(level):
         "https://example.test#secret",
         "https://example.test:99999/horizon",
         "https://bad host/horizon",
+        "https://[invalid/horizon",
         "//example.test/path",
     ],
 )
@@ -104,3 +105,13 @@ def test_direct_settings_constructor_derives_horizon_from_network():
     settings = SubstrataSettings(network=Network.STELLAR_MAINNET)
 
     assert settings.horizon_url == "https://horizon.stellar.org"
+
+
+def test_invalid_environment_values_are_not_echoed():
+    sentinel = "credential-leak-sentinel"
+
+    for name in ("SUBSTRATA_NETWORK", "SUBSTRATA_DEBUG"):
+        with pytest.raises(ConfigurationError) as error:
+            load_settings({name: sentinel})
+
+        assert sentinel not in str(error.value)

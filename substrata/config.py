@@ -24,8 +24,8 @@ def _parse_enum(name: str, value: str, enum_type: type[Environment] | type[Netwo
         return enum_type(value)
     except ValueError as exc:
         valid_values = ", ".join(item.value for item in enum_type)
-        message = f"Invalid {name!s} '{value}'. Expected one of: {valid_values}."
-        raise ConfigurationError(message, details={"field": name, "value": value}) from exc
+        message = f"Invalid {name!s}. Expected one of: {valid_values}."
+        raise ConfigurationError(message, details={"field": name}) from exc
 
 
 def _parse_bool(name: str, value: str) -> bool:
@@ -39,8 +39,8 @@ def _parse_bool(name: str, value: str) -> bool:
         return False
 
     raise ConfigurationError(
-        f"Invalid {name!s} '{value}'. Expected a boolean-like value.",
-        details={"field": name, "value": value},
+        f"Invalid {name!s}. Expected a boolean-like value.",
+        details={"field": name},
     )
 
 
@@ -102,8 +102,8 @@ class SubstrataSettings:
                 details={"field": "log_level"},
             )
 
-        parts = urlsplit(normalized_horizon_url)
         try:
+            parts = urlsplit(normalized_horizon_url)
             _ = parts.port
         except ValueError as exc:
             raise ConfigurationError(
