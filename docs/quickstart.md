@@ -48,6 +48,16 @@ python -m substrata policy evaluate examples/spend-policy.json \
 
 Evaluation is read only. It does not reserve budget or authorize a later payment by itself. The caller must reserve spend through the payment workflow before signing.
 
+## Inspect x402 data
+
+Decode a payment challenge from a JSON file. The same command accepts bounded input from stdin or a base64 HTTP header:
+
+```bash
+python -m substrata protocol inspect required --file examples/payment-required.json
+```
+
+Signature payloads are redacted in output by default. Add `--show-payload` only when you need to inspect signed data and can safely handle its contents.
+
 ## Reconcile a payment
 
 Reconcile only after checking the payment result with the responsible facilitator or settlement system. Mark a payment settled with its transaction identifier:
