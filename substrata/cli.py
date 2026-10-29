@@ -8,6 +8,7 @@ import sqlite3
 import sys
 from collections.abc import Sequence
 from dataclasses import asdict
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
@@ -90,6 +91,13 @@ def _parser() -> argparse.ArgumentParser:
         if action == "list":
             child.add_argument("--limit", type=_positive_int, default=100)
             child.add_argument("--offset", type=_nonnegative_int, default=0)
+    show = ledger_commands.add_parser("show", help="show one payment record")
+    _add_database_argument(show)
+    show.add_argument("request_id")
+    totals = ledger_commands.add_parser("totals", help="show total and daily reserved spend")
+    _add_database_argument(totals)
+    totals.add_argument("--currency", required=True)
+    totals.add_argument("--day", type=_calendar_date, help="UTC day in YYYY-MM-DD form")
     for action in ("settled", "failed"):
         child = ledger_commands.add_parser(f"reconcile-{action}", help=f"mark a record {action}")
         _add_database_argument(child)
@@ -148,6 +156,13 @@ def _nonnegative_int(value: str) -> int:
     if parsed < 0:
         raise argparse.ArgumentTypeError("must be zero or greater")
     return parsed
+
+
+def _calendar_date(value: str) -> date:
+    try:
+        return date.fromisoformat(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("must use YYYY-MM-DD") from exc
 
 
 def _json_line(value: object) -> str:
@@ -314,6 +329,28 @@ def _run(args: argparse.Namespace) -> int:
                     status=args.status,
                 ):
                     print(_json_line(entry))
+                return 0
+            if args.ledger_command == "show":
+                entry = ledger.get(args.request_id)
+                if entry is None:
+                    print(_json_line({"found": False, "request_id": args.request_id}))
+                    return 1
+                print(_json_line(entry))
+                return 0
+            if args.ledger_command == "totals":
+                day = args.day or datetime.now(UTC).date()
+                totals_by_status = ledger.status_totals(args.currency)
+                output = {
+                    "currency": args.currency,
+                    "day": day.isoformat(),
+                    "daily_total": format(ledger.spent_today(args.currency, today=day), "f"),
+                    "total": format(ledger.spent(args.currency), "f"),
+                    "by_status": {
+                        status.value: format(amount, "f")
+                        for status, amount in totals_by_status.items()
+                    },
+                }
+                print(_json_line(output))
                 return 0
             if args.ledger_command == "reconcile-settled":
                 entry = ledger.commit(args.request_id, settlement_id=args.settlement_id)

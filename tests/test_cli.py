@@ -2,6 +2,7 @@ import io
 import json
 import subprocess
 import sys
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 
@@ -299,6 +300,75 @@ def test_ledger_cli_lists_exports_and_reconciles(tmp_path, capsys):
     reconciliation = json.loads(capsys.readouterr().out)
     assert reconciliation["event_type"] == "ledger.manual_reconciliation"
     assert reconciliation["data"] == {"source": "cli", "status": "settled"}
+
+
+def test_ledger_show_displays_uncertain_entry_without_leaking_metadata(tmp_path, capsys):
+    database = tmp_path / "ledger.sqlite3"
+    with Ledger(database) as ledger:
+        ledger.reserve(
+            "req-uncertain",
+            Decimal("0.75"),
+            currency="stellar_testnet:XLM",
+            metadata={"private_key": "never-show"},
+        )
+        ledger.mark_uncertain("req-uncertain", reason="No receipt")
+
+    assert main(["ledger", "show", "req-uncertain", "--database", str(database)]) == 0
+    shown = capsys.readouterr().out
+    result = json.loads(shown)
+    assert result["status"] == "uncertain"
+    assert result["metadata"]["private_key"] == "[REDACTED]"
+    assert "never-show" not in shown
+
+    assert main(["ledger", "show", "missing", "--database", str(database)]) == 1
+    assert json.loads(capsys.readouterr().out) == {"found": False, "request_id": "missing"}
+
+
+def test_ledger_totals_reports_selected_utc_day_and_statuses(tmp_path, capsys):
+    database = tmp_path / "ledger.sqlite3"
+    currency = "stellar_testnet:XLM"
+    today = datetime.now(UTC).date()
+    with Ledger(database) as ledger:
+        ledger.reserve("req-one", Decimal("1.25"), currency=currency)
+        ledger.reserve("req-two", Decimal("2.75"), currency=currency)
+        ledger.commit("req-two")
+
+    assert main(
+        [
+            "ledger",
+            "totals",
+            "--currency",
+            currency,
+            "--day",
+            today.isoformat(),
+            "--database",
+            str(database),
+        ]
+    ) == 0
+    current = json.loads(capsys.readouterr().out)
+    assert current["daily_total"] == "4.0000000"
+    assert current["total"] == "4.0000000"
+    assert current["by_status"] == {
+        "failed": "0.0000000",
+        "pending": "1.2500000",
+        "settled": "2.7500000",
+        "uncertain": "0.0000000",
+    }
+
+    yesterday = (today - timedelta(days=1)).isoformat()
+    assert main(
+        [
+            "ledger",
+            "totals",
+            "--currency",
+            currency,
+            "--day",
+            yesterday,
+            "--database",
+            str(database),
+        ]
+    ) == 0
+    assert json.loads(capsys.readouterr().out)["daily_total"] == "0.0000000"
 
 
 def test_audit_cli_lists_exports_and_verifies(tmp_path, capsys):
