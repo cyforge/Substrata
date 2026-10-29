@@ -118,3 +118,15 @@ def test_extension_response_header_uses_bounded_json_object_codec() -> None:
     malformed = base64.b64encode(b'{"bazaar":{},"bazaar":{}}').decode()
     with pytest.raises(ValidationError):
         decode_extension_responses_header(malformed)
+
+
+def test_codec_rejects_unpaired_unicode_surrogates_on_decode_and_encode() -> None:
+    from substrata.x402.codec import decode_json_object, encode_json_object
+
+    for wire in (b'{"value":"\\ud800"}', b'{"\\ud800":"value"}'):
+        with pytest.raises(ValidationError, match="Unicode"):
+            decode_json_object(wire)
+    with pytest.raises(ValidationError, match="Unicode"):
+        encode_json_object({"value": "\ud800"})
+    with pytest.raises(ValidationError, match="Unicode"):
+        encode_json_object({"\ud800": "value"})

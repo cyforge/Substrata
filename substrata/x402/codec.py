@@ -50,7 +50,13 @@ def _reject_constant(value: str) -> None:
 def _validate_tree(value: object, depth: int = 0) -> JsonValue:
     if depth > MAX_JSON_DEPTH:
         raise ValidationError("JSON nesting exceeds limit")
-    if value is None or type(value) in (bool, str):
+    if value is None or type(value) is bool:
+        return value
+    if type(value) is str:
+        try:
+            value.encode("utf-8", errors="strict")
+        except UnicodeEncodeError as exc:
+            raise ValidationError("JSON strings must contain valid Unicode") from exc
         return value
     if type(value) is int:
         if abs(value) > MAX_INTEGER:
@@ -65,6 +71,11 @@ def _validate_tree(value: object, depth: int = 0) -> JsonValue:
     if isinstance(value, Mapping):
         if any(not isinstance(key, str) for key in value):
             raise ValidationError("JSON object keys must be strings")
+        for key in value:
+            try:
+                key.encode("utf-8", errors="strict")
+            except UnicodeEncodeError as exc:
+                raise ValidationError("JSON object keys must contain valid Unicode") from exc
         return {key: _validate_tree(item, depth + 1) for key, item in value.items()}
     raise ValidationError("value is not JSON-compatible")
 
