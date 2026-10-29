@@ -11,6 +11,7 @@ in [docs/support.md](docs/support.md).
 ### Added
 
 - CLI commands for validated configuration, ledger and audit inspection, and manual ledger reconciliation.
+- CLI policy intersection that combines organization and task limits without changing either file.
 - Ledger lookup and per-currency spend totals for reconciliation.
 - Bounded x402 message inspection with signed payment payloads redacted by default.
 - Python 3.11–3.14 CI coverage with wheel and source archive build checks.

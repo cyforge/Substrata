@@ -50,6 +50,14 @@ python -m substrata policy evaluate examples/spend-policy.json \
 
 Evaluation is read only. It does not reserve budget or authorize a later payment by itself. The caller must reserve spend through the payment workflow before signing.
 
+Combine an organization policy with a task policy. The command prints their restrictive intersection and leaves both input files unchanged:
+
+```bash
+python -m substrata policy intersect \
+  examples/spend-policy.json \
+  examples/task-spend-policy.json
+```
+
 ## Inspect x402 data
 
 Decode a payment challenge from a JSON file. The same command accepts bounded input from stdin or a base64 HTTP header:
