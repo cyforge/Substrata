@@ -23,12 +23,14 @@ Ledger and audit read commands require an initialized database. The ledger store
 
 ```bash
 python -m substrata ledger list --database /tmp/substrata.sqlite3
+python -m substrata ledger show REQUEST_ID --database /tmp/substrata.sqlite3
+python -m substrata ledger totals --currency stellar_testnet:XLM --database /tmp/substrata.sqlite3
 python -m substrata ledger export --database /tmp/substrata.sqlite3
 python -m substrata audit verify --database /tmp/substrata.sqlite3
 python -m substrata audit export --database /tmp/substrata.sqlite3
 ```
 
-The CLI prints ledger and audit exports as JSON Lines. Add `--currency`, `--status`, or `--request-id` to filter records. Use `--limit` and `--offset` to page through list results.
+The CLI prints ledger and audit exports as JSON Lines. `ledger show` reports one request, including an uncertain hold. `ledger totals` reports active spend by status and selected UTC day. Add `--currency`, `--status`, or `--request-id` to filter records. Use `--limit` and `--offset` to page through list results.
 
 ## Check a spend policy
 
