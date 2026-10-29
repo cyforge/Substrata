@@ -231,6 +231,46 @@ def test_policy_cli_uses_ledger_spend_and_denies_over_daily_limit(tmp_path, caps
     assert result["reason_code"] == "daily_limit_exceeded"
 
 
+def test_policy_cli_intersects_restrictions_without_mutating_files(tmp_path, capsys):
+    global_policy_path = tmp_path / "global.json"
+    task_policy_path = tmp_path / "task.json"
+    _write_policy(
+        global_policy_path,
+        allowed_recipients=["GONE", "GSHARED"],
+        max_payment="5",
+        daily_limit="10",
+        total_limit="20",
+    )
+    _write_policy(
+        task_policy_path,
+        allowed_recipients=["GSHARED", "GOTHER"],
+        max_payment="3",
+        daily_limit="4",
+        total_limit="7",
+    )
+    original_global = global_policy_path.read_text()
+    original_task = task_policy_path.read_text()
+
+    assert (
+        main(
+            [
+                "policy",
+                "intersect",
+                str(global_policy_path),
+                str(task_policy_path),
+            ]
+        )
+        == 0
+    )
+    combined = json.loads(capsys.readouterr().out)
+    assert combined["allowed_recipients"] == ["GSHARED"]
+    assert combined["max_payment"] == "3"
+    assert combined["daily_limit"] == "4"
+    assert combined["total_limit"] == "7"
+    assert global_policy_path.read_text() == original_global
+    assert task_policy_path.read_text() == original_task
+
+
 def test_policy_cli_rejects_duplicate_and_unknown_json_fields(tmp_path, capsys):
     duplicate_path = tmp_path / "duplicate.json"
     duplicate_path.write_text('{"allowed_networks": [], "allowed_networks": []}')

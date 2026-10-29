@@ -66,6 +66,11 @@ def _parser() -> argparse.ArgumentParser:
     policy_commands = policy.add_subparsers(dest="policy_command", required=True)
     validate = policy_commands.add_parser("validate", help="validate a JSON policy file")
     validate.add_argument("policy_file", type=Path)
+    intersect = policy_commands.add_parser(
+        "intersect", help="combine two policies using the stricter limits"
+    )
+    intersect.add_argument("left_policy", type=Path)
+    intersect.add_argument("right_policy", type=Path)
     evaluate = policy_commands.add_parser("evaluate", help="evaluate one payment request")
     evaluate.add_argument("policy_file", type=Path)
     evaluate.add_argument("--recipient", required=True)
@@ -281,6 +286,17 @@ def _run(args: argparse.Namespace) -> int:
         return 0
 
     if args.command == "policy":
+        if args.policy_command == "intersect":
+            left_policy = _load_policy(args.left_policy)
+            right_policy = _load_policy(args.right_policy)
+            print(
+                json.dumps(
+                    left_policy.intersect(right_policy).to_dict(),
+                    indent=2,
+                    sort_keys=True,
+                )
+            )
+            return 0
         spend_policy = _load_policy(args.policy_file)
         if args.policy_command == "validate":
             print(json.dumps(spend_policy.to_dict(), indent=2, sort_keys=True))
