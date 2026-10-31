@@ -128,6 +128,91 @@ def test_protocol_inspect_bounds_input_and_rejects_wrong_header(capsys, monkeypa
     assert "Expected PAYMENT-REQUIRED" in capsys.readouterr().err
 
 
+def test_fetch_uses_named_environment_secret_and_durable_client(tmp_path, capsys, monkeypatch):
+    from substrata.client import ClientResponse
+
+    database = tmp_path / "fetch.sqlite3"
+    policy_path = tmp_path / "policy.json"
+    _write_policy(policy_path)
+    with Ledger(database):
+        pass
+    secret = "S" * 56
+    monkeypatch.setenv("BUYER_SECRET_FOR_TEST", secret)
+    monkeypatch.setenv("SUBSTRATA_STELLAR_RPC_URL", "https://rpc.example.test")
+    observed: dict[str, object] = {}
+
+    class FakeSigner:
+        def __init__(self, secret_seed, *, rpc_url, network):
+            observed.update(secret=secret_seed, rpc_url=rpc_url, network=network)
+
+    class FakeBuyer:
+        def __init__(self, policy, signer, *, ledger, audit_log):
+            observed.update(policy=policy, signer=signer, ledger=ledger, audit_log=audit_log)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            return None
+
+        def get(self, url, *, request_id):
+            observed.update(url=url, request_id=request_id)
+            return ClientResponse(200, {}, b"response body")
+
+    monkeypatch.setattr("substrata.integrations.stellar.StellarAuthSigner", FakeSigner)
+    monkeypatch.setattr("substrata.client.BuyerClient", FakeBuyer)
+
+    result = main(
+        [
+            "fetch",
+            "https://api.example.test/paid",
+            "--policy",
+            str(policy_path),
+            "--database",
+            str(database),
+            "--secret-env-var",
+            "BUYER_SECRET_FOR_TEST",
+            "--request-id",
+            "fetch-1",
+        ]
+    )
+
+    output = capsys.readouterr()
+    assert result == 0
+    assert output.out == "response body"
+    assert "fetch-1" in output.err
+    assert secret not in output.out + output.err
+    assert observed["secret"] == secret
+    assert observed["network"] == "stellar:testnet"
+    assert observed["url"] == "https://api.example.test/paid"
+
+
+def test_fetch_requires_secret_environment_variable_without_echoing_secret(
+    tmp_path, capsys, monkeypatch
+):
+    database = tmp_path / "fetch.sqlite3"
+    policy_path = tmp_path / "policy.json"
+    _write_policy(policy_path)
+    monkeypatch.delenv("SUBSTRATA_STELLAR_SECRET_SEED", raising=False)
+    with Ledger(database):
+        pass
+
+    assert (
+        main(
+            [
+                "fetch",
+                "https://api.example.test/paid",
+                "--policy",
+                str(policy_path),
+                "--database",
+                str(database),
+            ]
+        )
+        == 2
+    )
+    assert "SUBSTRATA_STELLAR_SECRET_SEED" in capsys.readouterr().err
+
+
 def test_config_show_prints_validated_nonsecret_settings(monkeypatch, capsys):
     monkeypatch.setenv("SUBSTRATA_NETWORK", "stellar_testnet")
 

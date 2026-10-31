@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import re
 import sqlite3
 import sys
 from collections.abc import Sequence
@@ -12,6 +14,7 @@ from datetime import UTC, date, datetime
 from decimal import Decimal
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
+from uuid import uuid4
 
 from . import __version__
 from .audit import AuditLog
@@ -135,6 +138,19 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="include signed payment payload in output (signature kind only)",
     )
+
+    fetch = commands.add_parser("fetch", help="make a policy-controlled Stellar testnet GET")
+    fetch.add_argument("url")
+    fetch.add_argument("--policy", type=Path, required=True)
+    fetch.add_argument("--database", type=Path, required=True)
+    fetch.add_argument("--request-id")
+    fetch.add_argument(
+        "--secret-env-var",
+        type=_environment_name,
+        default="SUBSTRATA_STELLAR_SECRET_SEED",
+        help="environment variable name holding signer seed, never the seed itself",
+    )
+    fetch.add_argument("--rpc-url", help="Soroban RPC URL (or SUBSTRATA_STELLAR_RPC_URL)")
     return parser
 
 
@@ -168,6 +184,12 @@ def _calendar_date(value: str) -> date:
         return date.fromisoformat(value)
     except ValueError as exc:
         raise argparse.ArgumentTypeError("must use YYYY-MM-DD") from exc
+
+
+def _environment_name(value: str) -> str:
+    if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", value) is None:
+        raise argparse.ArgumentTypeError("must be a valid environment variable name")
+    return value
 
 
 def _json_line(value: object) -> str:
@@ -433,6 +455,47 @@ def _run(args: argparse.Namespace) -> int:
             output["payload"] = "[REDACTED]"
         print(json.dumps(output, indent=2, sort_keys=True, allow_nan=False))
         return 0
+
+    if args.command == "fetch":
+        from .client import BuyerClient, ClientError
+        from .integrations.stellar import StellarAuthSigner
+
+        _require_database(args.database)
+        spend_policy = _load_policy(args.policy)
+        secret_seed = os.environ.get(args.secret_env_var)
+        if not secret_seed:
+            raise ValueError(f"Signer seed environment variable {args.secret_env_var} is not set.")
+        rpc_url = args.rpc_url or os.environ.get("SUBSTRATA_STELLAR_RPC_URL")
+        if not rpc_url:
+            raise ValueError("Pass --rpc-url or set SUBSTRATA_STELLAR_RPC_URL.")
+        if args.request_id is not None and not args.request_id.strip():
+            raise ValueError("--request-id must not be blank.")
+        request_id = args.request_id or str(uuid4())
+        signer = StellarAuthSigner(secret_seed, rpc_url=rpc_url, network="stellar:testnet")
+        print(f"request_id={request_id}", file=sys.stderr)
+        try:
+            with Ledger(args.database) as ledger, AuditLog(args.database) as audit_log:
+                with BuyerClient(
+                    spend_policy,
+                    signer,
+                    ledger=ledger,
+                    audit_log=audit_log,
+                ) as buyer:
+                    response = buyer.get(args.url, request_id=request_id)
+        except ClientError as exc:
+            raise SubstrataError(str(exc)) from None
+        summary: dict[str, object] = {"http_status": response.status_code, "request_id": request_id}
+        if response.payment is not None:
+            summary["payment_status"] = response.payment.status.value
+            summary["transaction_id"] = response.payment.transaction_id
+        print(json.dumps(summary, sort_keys=True), file=sys.stderr)
+        stdout_buffer = getattr(sys.stdout, "buffer", None)
+        if stdout_buffer is not None:
+            stdout_buffer.write(response.body)
+            stdout_buffer.flush()
+        else:
+            sys.stdout.write(response.body.decode("utf-8", errors="replace"))
+        return 0 if response.status_code < 400 else 1
 
     raise AssertionError(f"Unhandled command: {args.command}")
 
