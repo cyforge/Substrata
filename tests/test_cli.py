@@ -147,7 +147,20 @@ def test_doctor_checks_local_sqlite_path(tmp_path, capsys):
     assert main(["doctor", "--init", "--database", str(database)]) == 0
 
     assert database.exists()
-    assert "initialized" in capsys.readouterr().out
+    output = capsys.readouterr().out
+    assert "initialized" in output
+    assert "Optional Stellar SDK:" in output
+
+
+def test_doctor_reports_optional_stellar_version_without_network(tmp_path, capsys, monkeypatch):
+    database = tmp_path / "local.sqlite3"
+    with Ledger(database):
+        pass
+    monkeypatch.setattr("substrata.cli.version", lambda package: "17.0.1")
+
+    assert main(["doctor", "--database", str(database)]) == 0
+
+    assert "Optional Stellar SDK: 17.0.1" in capsys.readouterr().out
 
 
 def _write_policy(path: Path, **overrides):

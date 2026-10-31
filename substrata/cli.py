@@ -283,6 +283,12 @@ def _run(args: argparse.Namespace) -> int:
         print(f"Configuration valid ({settings.environment.value}, {settings.network.value}).")
         state = "initialized" if args.init else "accessible"
         print(f"Ledger and audit database {state} at {args.database}.")
+        try:
+            stellar_version = version("stellar-sdk")
+        except PackageNotFoundError:
+            print("Optional Stellar SDK: not installed.")
+        else:
+            print(f"Optional Stellar SDK: {stellar_version}.")
         return 0
 
     if args.command == "policy":
