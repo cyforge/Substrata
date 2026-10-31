@@ -58,6 +58,19 @@ python -m substrata policy intersect \
   examples/task-spend-policy.json
 ```
 
+## Fetch a paid resource
+
+`fetch` performs a GET with the testnet Stellar authorization signer. It needs the Soroban RPC URL and a secret seed stored in an environment variable. The default seed variable is `SUBSTRATA_STELLAR_SECRET_SEED`; `--secret-env-var` accepts a variable name when your secret manager uses another name. The command requires an initialized database and policy file. It prints the response body to stdout and request/payment details to stderr.
+
+```bash
+python -m substrata fetch https://api.example.test/paid \
+  --policy examples/spend-policy.json \
+  --database /tmp/substrata.sqlite3 \
+  --request-id paid-request-123
+```
+
+Load the seed through your environment's secret manager before running the command. Never pass a seed as a command-line argument. This path uses Stellar testnet and accepts only offers supported by the signer and policy.
+
 ## Inspect x402 data
 
 Decode a payment challenge from a JSON file. The same command accepts bounded input from stdin or a base64 HTTP header:
