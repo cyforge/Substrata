@@ -20,6 +20,8 @@ VALID_LOG_LEVELS = frozenset({"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"})
 
 
 def _parse_enum(name: str, value: str, enum_type: type[Environment] | type[Network]):
+    if not isinstance(value, str):
+        raise ConfigurationError(f"Invalid {name}. Expected text.", details={"field": name})
     try:
         return enum_type(value)
     except ValueError as exc:
@@ -29,6 +31,8 @@ def _parse_enum(name: str, value: str, enum_type: type[Environment] | type[Netwo
 
 
 def _parse_bool(name: str, value: str) -> bool:
+    if not isinstance(value, str):
+        raise ConfigurationError(f"Invalid {name}. Expected a boolean-like value.")
     normalized = value.strip().lower()
     truthy = {"1", "true", "yes", "on"}
     falsy = {"0", "false", "no", "off"}
@@ -45,6 +49,8 @@ def _parse_bool(name: str, value: str) -> bool:
 
 
 def _parse_required_text(name: str, value: str) -> str:
+    if not isinstance(value, str):
+        raise ConfigurationError(f"Invalid {name}. Expected text.", details={"field": name})
     normalized = value.strip()
     if not normalized:
         raise ConfigurationError(
@@ -58,6 +64,11 @@ def _parse_required_text(name: str, value: str) -> str:
 def _parse_optional_text(value: str | None) -> str | None:
     if value is None:
         return None
+    if not isinstance(value, str):
+        raise ConfigurationError(
+            "Invalid default_asset_issuer. Expected text.",
+            details={"field": "default_asset_issuer"},
+        )
 
     normalized = value.strip()
     return normalized or None
@@ -79,6 +90,8 @@ class SubstrataSettings:
             raise ConfigurationError("Invalid environment. Use a supported Environment value.")
         if not isinstance(self.network, Network):
             raise ConfigurationError("Invalid network. Use a supported Network value.")
+        if not isinstance(self.debug, bool):
+            raise ConfigurationError("Invalid debug. Expected a boolean value.")
         normalized_log_level = _parse_required_text("log_level", self.log_level).upper()
         horizon_url = (
             DEFAULT_HORIZON_URLS[self.network]

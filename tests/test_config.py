@@ -115,3 +115,14 @@ def test_invalid_environment_values_are_not_echoed():
             load_settings({name: sentinel})
 
         assert sentinel not in str(error.value)
+
+
+def test_config_rejects_wrong_python_types_with_typed_errors():
+    with pytest.raises(ConfigurationError, match="SUBSTRATA_NETWORK"):
+        load_settings({"SUBSTRATA_NETWORK": 7})
+    with pytest.raises(ConfigurationError, match="debug"):
+        SubstrataSettings(debug="false")
+    with pytest.raises(ConfigurationError, match="log_level"):
+        SubstrataSettings(log_level=7)
+    with pytest.raises(ConfigurationError, match="default_asset_issuer"):
+        SubstrataSettings(default_asset_code="USDC", default_asset_issuer=17)
