@@ -38,6 +38,8 @@ python -m substrata config show
 python -m substrata doctor --init --database /tmp/substrata.sqlite3
 ```
 
+`doctor` reports whether the optional Stellar SDK package is installed. It does not load signer keys or make network requests.
+
 See [the quickstart](quickstart.md) for ledger and audit commands.
 
 ## Settings
