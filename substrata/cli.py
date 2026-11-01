@@ -458,7 +458,7 @@ def _run(args: argparse.Namespace) -> int:
 
     if args.command == "fetch":
         from .client import BuyerClient, ClientError
-        from .integrations.stellar import StellarAuthSigner
+        from .signers import StellarAuthSigner
 
         _require_database(args.database)
         spend_policy = _load_policy(args.policy)

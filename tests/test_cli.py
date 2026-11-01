@@ -159,7 +159,7 @@ def test_fetch_uses_named_environment_secret_and_durable_client(tmp_path, capsys
             observed.update(url=url, request_id=request_id)
             return ClientResponse(200, {}, b"response body")
 
-    monkeypatch.setattr("substrata.integrations.stellar.StellarAuthSigner", FakeSigner)
+    monkeypatch.setattr("substrata.signers.StellarAuthSigner", FakeSigner)
     monkeypatch.setattr("substrata.client.BuyerClient", FakeBuyer)
 
     result = main(
