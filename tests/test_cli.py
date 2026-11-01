@@ -4,7 +4,9 @@ import subprocess
 import sys
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from threading import Thread
 
 import pytest
 
@@ -211,6 +213,56 @@ def test_fetch_requires_secret_environment_variable_without_echoing_secret(
         == 2
     )
     assert "SUBSTRATA_STELLAR_SECRET_SEED" in capsys.readouterr().err
+
+
+def test_fetch_uses_real_http_transport_for_free_loopback_response(tmp_path, capsys, monkeypatch):
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header("Content-Length", "13")
+            self.end_headers()
+            self.wfile.write(b"free response")
+
+        def log_message(self, format, *args):
+            return None
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    database = tmp_path / "fetch.sqlite3"
+    policy_path = tmp_path / "policy.json"
+    _write_policy(policy_path)
+    with Ledger(database):
+        pass
+    monkeypatch.setenv("SUBSTRATA_STELLAR_SECRET_SEED", "test-only-seed")
+    monkeypatch.setenv("SUBSTRATA_STELLAR_RPC_URL", "https://rpc.example.test")
+    url = f"http://127.0.0.1:{server.server_port}/free"
+    try:
+        assert (
+            main(
+                [
+                    "fetch",
+                    url,
+                    "--policy",
+                    str(policy_path),
+                    "--database",
+                    str(database),
+                    "--request-id",
+                    "free-fetch-1",
+                ]
+            )
+            == 0
+        )
+        output = capsys.readouterr()
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+    assert output.out == "free response"
+    assert json.loads(output.err.splitlines()[-1]) == {
+        "http_status": 200,
+        "request_id": "free-fetch-1",
+    }
 
 
 def test_config_show_prints_validated_nonsecret_settings(monkeypatch, capsys):
