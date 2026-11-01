@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from substrata.client import BuyerClient, HTTPResponse
+from substrata.client import BuyerClient, ClientError, HTTPResponse
 from substrata.constants import Network
 from substrata.errors import ValidationError
 from substrata.models import Asset, PaymentStatus
@@ -147,17 +147,46 @@ def test_ephemeral_budget_requires_explicit_opt_in():
     client.close()
 
 
+def test_falsey_injected_transport_is_preserved():
+    class FalseyTransport(QueueTransport):
+        def __bool__(self):
+            return False
+
+    pair = create_local_demo_pair()
+    transport = FalseyTransport([HTTPResponse(200, {}, b"custom")])
+    client = BuyerClient(
+        POLICY,
+        pair.signer,
+        ledger=Ledger(":memory:"),
+        transport=transport,
+    )
+
+    result = client.get(URL)
+
+    assert result.body == b"custom"
+    assert len(transport.calls) == 1
+
+
 def test_policy_skips_first_supported_offer_and_selects_later_allowed_offer():
     pair = create_local_demo_pair()
     expensive = PaymentRequirements(
         "substrata-demo", "stellar:testnet", "30000000", "XLM", OFFER.pay_to, 45
+    )
+    unsupported = PaymentRequirements(
+        "exact",
+        "stellar:pubnet",
+        "12500000",
+        "C" + "A" * 55,
+        OFFER.pay_to,
+        45,
+        {"areFeesSponsored": True},
     )
     affordable = PaymentRequirements(
         "substrata-demo", "stellar:testnet", "15000000", "XLM", OFFER.pay_to, 45
     )
     paid_payload = pair.signer.sign(affordable, RESOURCE)
     receipt = pair.facilitator.settle(paid_payload, affordable)
-    multi = PaymentRequired(resource=RESOURCE, accepts=(expensive, affordable))
+    multi = PaymentRequired(resource=RESOURCE, accepts=(unsupported, expensive, affordable))
     transport = QueueTransport(
         [
             HTTPResponse(402, {"payment-required": encode_payment_required_header(multi)}, b"pay"),
@@ -510,6 +539,117 @@ def test_async_client_runs_sync_transport_in_worker_thread():
     asyncio.run(exercise())
 
 
+def test_async_cancelled_payment_finishes_before_owned_ledger_closes(tmp_path: Path):
+    import asyncio
+    import threading
+
+    from substrata.client import AsyncBuyerClient
+
+    pair = create_local_demo_pair()
+    receipt = pair.facilitator.settle(pair.signer.sign(OFFER, RESOURCE), OFFER)
+    started = threading.Event()
+    release = threading.Event()
+
+    class BlockingPaidTransport(QueueTransport):
+        def send(self, method, url, headers, body, timeout, max_response_bytes):
+            self.calls.append((method, url, dict(headers), body))
+            if len(self.calls) == 2:
+                started.set()
+                if not release.wait(2):
+                    raise TimeoutError("test release timed out")
+            return self.responses.pop(0)
+
+    async def exercise():
+        path = tmp_path / "async-cancel.sqlite"
+        transport = BlockingPaidTransport(
+            [
+                HTTPResponse(
+                    402, {"payment-required": encode_payment_required_header(challenge())}, b"pay"
+                ),
+                HTTPResponse(
+                    200, {"payment-response": encode_payment_response_header(receipt)}, b"ok"
+                ),
+            ]
+        )
+        sync_client = BuyerClient(POLICY, pair.signer, ledger_path=str(path), transport=transport)
+        async_client = AsyncBuyerClient(sync_client)
+        request = asyncio.create_task(async_client.get(URL, request_id="cancelled-paid-call"))
+        started_ok = await asyncio.to_thread(started.wait, 1)
+        assert started_ok
+        request.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await request
+
+        closing = asyncio.create_task(async_client.close())
+        await asyncio.sleep(0.02)
+        assert not closing.done()
+        release.set()
+        await closing
+
+    asyncio.run(exercise())
+    ledger = Ledger(str(tmp_path / "async-cancel.sqlite"))
+    assert ledger.get("cancelled-paid-call").status is LedgerStatus.SETTLED
+    ledger.close()
+
+
+def test_async_cancelled_worker_error_is_consumed_and_ledger_stays_uncertain(tmp_path: Path):
+    import asyncio
+    import threading
+
+    from substrata.client import AsyncBuyerClient
+
+    started = threading.Event()
+    release = threading.Event()
+
+    class FailingPaidTransport(QueueTransport):
+        def send(self, method, url, headers, body, timeout, max_response_bytes):
+            if not self.calls:
+                self.calls.append((method, url, dict(headers), body))
+                return self.responses.pop(0)
+            self.calls.append((method, url, dict(headers), body))
+            started.set()
+            if not release.wait(2):
+                raise TimeoutError("test release timed out")
+            raise OSError("mocked outcome is unknown")
+
+    async def exercise():
+        path = tmp_path / "async-error.sqlite"
+        transport = FailingPaidTransport(
+            [
+                HTTPResponse(
+                    402, {"payment-required": encode_payment_required_header(challenge())}, b"pay"
+                )
+            ]
+        )
+        sync_client = BuyerClient(
+            POLICY,
+            create_local_demo_pair().signer,
+            ledger_path=str(path),
+            transport=transport,
+        )
+        async_client = AsyncBuyerClient(sync_client)
+        loop = asyncio.get_running_loop()
+        unhandled = []
+        loop.set_exception_handler(lambda _, context: unhandled.append(context))
+        request = asyncio.create_task(async_client.get(URL, request_id="cancelled-worker-error"))
+        assert await asyncio.to_thread(started.wait, 1)
+        request.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await request
+        closing = asyncio.create_task(async_client.close())
+        await asyncio.sleep(0.02)
+        assert not closing.done()
+        release.set()
+        await closing
+        await asyncio.sleep(0)
+        assert unhandled == []
+
+    asyncio.run(exercise())
+    ledger = Ledger(str(tmp_path / "async-error.sqlite"))
+    assert ledger.get("cancelled-worker-error").status is LedgerStatus.UNCERTAIN
+    ledger.close()
+
+
 def test_file_ledger_keeps_budget_across_client_recreation(tmp_path: Path):
     pair = create_local_demo_pair()
     path = tmp_path / "persistent-buyer.sqlite"
@@ -652,3 +792,183 @@ def test_stellar_receipt_payer_must_match_signer_identity():
     assert result.payment is not None and result.payment.status is PaymentStatus.UNCERTAIN
     assert ledger.get("wrong-stellar-payer").status is LedgerStatus.UNCERTAIN
     assert ledger.spent("stellar_testnet:contract:Ctoken-contract") > 0
+
+
+@pytest.mark.parametrize(
+    "receipt_changes, reason",
+    [
+        ({"network": "stellar:pubnet"}, "network"),
+        ({"transaction": "invalid-hash"}, "transaction"),
+        ({"amount": "10000001"}, "amount"),
+    ],
+)
+def test_stellar_receipt_fields_must_match_offer(receipt_changes, reason):
+    import base64
+    from dataclasses import replace
+
+    from substrata.x402.models import PaymentPayload
+
+    class ExactSigner:
+        address = "Gexpected-payer"
+
+        def supports(self, requirements):
+            return requirements.scheme == "exact"
+
+        def sign(self, requirements, resource):
+            return PaymentPayload(
+                accepted=requirements,
+                resource=resource,
+                payload={"transaction": base64.b64encode(b"auth-xdr").decode("ascii")},
+            )
+
+    url = "https://api.example.test/data"
+    resource = ResourceInfo(url)
+    offer = PaymentRequirements(
+        "exact",
+        "stellar:testnet",
+        "10000000",
+        "Ctoken-contract",
+        "Gmerchant",
+        30,
+        {"areFeesSponsored": True},
+    )
+    required = PaymentRequired(resource=resource, accepts=(offer,))
+    receipt = SettlementResponse(
+        True, "a" * 64, "stellar:testnet", payer="Gexpected-payer", amount="10000000"
+    )
+    receipt = replace(receipt, **receipt_changes)
+    policy = SpendPolicy(
+        allowed_networks=frozenset({Network.STELLAR_TESTNET}),
+        allowed_recipients=frozenset({"Gmerchant"}),
+        allowed_assets=frozenset({Asset.soroban("Ctoken-contract")}),
+        total_limit="2",
+        allowed_origins=frozenset({"https://api.example.test"}),
+    )
+    ledger = Ledger(":memory:")
+    transport = QueueTransport(
+        [
+            HTTPResponse(
+                402, {"payment-required": encode_payment_required_header(required)}, b"pay"
+            ),
+            HTTPResponse(200, {"payment-response": encode_payment_response_header(receipt)}, b"ok"),
+        ]
+    )
+    client = BuyerClient(policy, ExactSigner(), ledger=ledger, transport=transport)
+    result = client.get(url, request_id=f"invalid-receipt-{reason}")
+    assert result.payment is not None and result.payment.status is PaymentStatus.UNCERTAIN
+    assert ledger.get(f"invalid-receipt-{reason}").status is LedgerStatus.UNCERTAIN
+
+
+def test_signer_capability_must_return_an_actual_bool():
+    class NonBooleanSigner:
+        def supports(self, requirements):
+            return "false"
+
+        def sign(self, requirements, resource):
+            raise AssertionError("sign must never run")
+
+    transport = QueueTransport(
+        [
+            HTTPResponse(
+                402, {"payment-required": encode_payment_required_header(challenge())}, b"pay"
+            ),
+        ]
+    )
+    client = BuyerClient(
+        POLICY,
+        NonBooleanSigner(),
+        ledger=Ledger(":memory:"),
+        transport=transport,
+    )
+    with pytest.raises(ClientError, match="must return bool"):
+        client.get(URL, request_id="capability-not-bool")
+    assert len(transport.calls) == 1
+
+
+def test_exact_signer_payer_identity_is_checked_before_reservation():
+    contract = "C" + "A" * 55
+    exact_url = "https://api.example.test/resource"
+    offer = PaymentRequirements(
+        "exact",
+        "stellar:testnet",
+        "12500000",
+        contract,
+        OFFER.pay_to,
+        45,
+        {"areFeesSponsored": True},
+    )
+
+    class BrokenIdentitySigner:
+        @property
+        def address(self):
+            raise RuntimeError("secret-bearing backend failure")
+
+        def supports(self, requirements):
+            return requirements.scheme == "exact"
+
+        def sign(self, requirements, resource):
+            raise AssertionError("payer identity must be checked before signing")
+
+    ledger = Ledger(":memory:")
+    transport = QueueTransport(
+        [
+            HTTPResponse(
+                402,
+                {
+                    "payment-required": encode_payment_required_header(
+                        PaymentRequired(ResourceInfo(exact_url), (offer,))
+                    )
+                },
+                b"pay",
+            )
+        ]
+    )
+    policy = SpendPolicy(
+        allowed_networks=frozenset({Network.STELLAR_TESTNET}),
+        allowed_recipients=frozenset({OFFER.pay_to}),
+        allowed_assets=frozenset({Asset.soroban(contract)}),
+        total_limit="2",
+        daily_limit="2",
+        allowed_origins=frozenset({"https://api.example.test"}),
+    )
+    client = BuyerClient(policy, BrokenIdentitySigner(), ledger=ledger, transport=transport)
+
+    with pytest.raises(ValidationError, match="payer address") as error:
+        client.get(exact_url, request_id="bad-signer-identity")
+
+    assert "secret-bearing" not in str(error.value)
+    assert ledger.spent(f"{Network.STELLAR_TESTNET.value}:{contract}") == 0
+    assert len(transport.calls) == 1
+
+
+def test_signer_must_declare_capability_before_client_construction():
+    class NoCapabilitySigner:
+        def sign(self, requirements, resource):
+            raise AssertionError("sign must never run")
+
+    with pytest.raises(ValidationError, match="supports"):
+        BuyerClient(POLICY, NoCapabilitySigner(), allow_ephemeral_ledger=True)
+
+
+@pytest.mark.parametrize("request_id", ["", "  ", False, 0, " padded ", "line\nbreak", "x" * 257])
+def test_invalid_request_id_is_rejected_before_network_io(request_id):
+    pair = create_local_demo_pair()
+    transport = QueueTransport([])
+    client = BuyerClient(POLICY, pair.signer, ledger=Ledger(":memory:"), transport=transport)
+
+    with pytest.raises(ValidationError, match="request_id"):
+        client.get(URL, request_id=request_id)
+
+    assert transport.calls == []
+
+
+@pytest.mark.parametrize("replayable", ["false", 1, None])
+def test_replayable_requires_literal_bool_before_network_io(replayable):
+    pair = create_local_demo_pair()
+    transport = QueueTransport([])
+    client = BuyerClient(POLICY, pair.signer, ledger=Ledger(":memory:"), transport=transport)
+
+    with pytest.raises(ValidationError, match="replayable"):
+        client.post(URL, b"body", replayable=replayable)
+
+    assert transport.calls == []
