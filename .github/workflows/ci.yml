@@ -46,6 +46,8 @@ jobs:
           "$RUNNER_TEMP/substrata-venv/bin/substrata" --version
           "$RUNNER_TEMP/substrata-venv/bin/substrata" --help
           "$RUNNER_TEMP/substrata-venv/bin/substrata" config show
+          "$RUNNER_TEMP/substrata-venv/bin/substrata" demo --database "$RUNNER_TEMP/demo.sqlite3"
+          "$RUNNER_TEMP/substrata-venv/bin/substrata" audit verify --database "$RUNNER_TEMP/demo.sqlite3"
 
   stellar:
     runs-on: ubuntu-latest
