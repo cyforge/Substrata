@@ -1,0 +1,16 @@
+{
+  "x402Version": 2,
+  "resource": {
+    "url": "http://127.0.0.1:8080/paid"
+  },
+  "accepts": [
+    {
+      "scheme": "substrata-demo",
+      "network": "stellar:testnet",
+      "amount": "10000000",
+      "asset": "XLM",
+      "payTo": "GRECIPIENT",
+      "maxTimeoutSeconds": 60
+    }
+  ]
+}

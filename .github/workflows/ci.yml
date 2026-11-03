@@ -4,10 +4,52 @@ on:
   pull_request:
   push:
     branches:
-      - master
+      - main
 
 jobs:
   test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]" build
+
+      - name: Run lint
+        run: python -m ruff check .
+
+      - name: Run tests
+        run: python -m pytest
+
+      - name: Build wheel and source archive
+        if: matrix.python-version == '3.11'
+        run: python -m build
+
+      - name: Install built wheel and check CLI
+        if: matrix.python-version == '3.11'
+        run: |
+          python -m venv "$RUNNER_TEMP/substrata-venv"
+          "$RUNNER_TEMP/substrata-venv/bin/python" -m pip install --no-deps dist/*.whl
+          cd "$RUNNER_TEMP"
+          "$RUNNER_TEMP/substrata-venv/bin/substrata" --version
+          "$RUNNER_TEMP/substrata-venv/bin/substrata" --help
+          "$RUNNER_TEMP/substrata-venv/bin/substrata" config show
+          "$RUNNER_TEMP/substrata-venv/bin/substrata" demo --database "$RUNNER_TEMP/demo.sqlite3"
+          "$RUNNER_TEMP/substrata-venv/bin/substrata" audit verify --database "$RUNNER_TEMP/demo.sqlite3"
+
+  stellar:
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -18,13 +60,10 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install dependencies
+      - name: Install optional Stellar SDK
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e ".[dev]"
+          python -m pip install -e ".[dev,stellar]"
 
-      - name: Run lint
-        run: python -m ruff check .
-
-      - name: Run tests
+      - name: Run tests with Stellar SDK
         run: python -m pytest

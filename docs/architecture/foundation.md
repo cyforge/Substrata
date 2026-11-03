@@ -1,42 +1,39 @@
-# Package Foundation Notes
-
-This note captures the current package shape after the initial Substrata
-foundation work landed.
+# Package layout
 
 ## Entrypoints
 
-- `python -m substrata` runs [substrata/__main__.py](/Users/Apple/dev/os/mann/Substrata/substrata/__main__.py)
-  and routes into the package CLI.
-- `python main.py` stays available as a compatibility entrypoint and delegates
-  to [substrata/cli.py](/Users/Apple/dev/os/mann/Substrata/substrata/cli.py).
-- `python examples/basic_app.py` exercises the package from an external example
-  path instead of using ad hoc root-level script logic.
+- `python -m substrata` runs [the package entrypoint](../../substrata/__main__.py).
+- `python main.py` keeps the compatibility entrypoint and delegates to [the CLI](../../substrata/cli.py).
+- `python examples/basic_app.py` runs the package's basic application example.
 
-## Core Modules
+`substrata.cli.main()` with no arguments keeps its original programmatic behavior. The module entrypoint forwards command line arguments through `entrypoint()`.
 
-- [substrata/constants.py](/Users/Apple/dev/os/mann/Substrata/substrata/constants.py)
-  defines shared environment and network values.
-- [substrata/config.py](/Users/Apple/dev/os/mann/Substrata/substrata/config.py)
-  loads typed runtime settings from environment variables.
-- [substrata/logging.py](/Users/Apple/dev/os/mann/Substrata/substrata/logging.py)
-  centralizes logging bootstrap behavior.
-- [substrata/errors.py](/Users/Apple/dev/os/mann/Substrata/substrata/errors.py)
-  defines the base error taxonomy used by foundation code.
-- [substrata/app.py](/Users/Apple/dev/os/mann/Substrata/substrata/app.py)
-  contains the minimal runnable application surface.
+## Runtime configuration
 
-## Testing and Tooling
+- [Settings](../../substrata/config.py) validate environment, network, log level, Horizon URL, and default asset.
+- [Constants](../../substrata/constants.py) define supported environments and Stellar networks.
+- [Logging](../../substrata/logging.py) configures application logging.
+- [Errors](../../substrata/errors.py) defines typed package errors.
 
-- [tests/test_foundations.py](/Users/Apple/dev/os/mann/Substrata/tests/test_foundations.py)
-  covers public exports, typed errors, and logging setup.
-- [tests/test_config.py](/Users/Apple/dev/os/mann/Substrata/tests/test_config.py)
-  covers settings loading and validation behavior.
-- [pyproject.toml](/Users/Apple/dev/os/mann/Substrata/pyproject.toml)
-  defines the package metadata, pytest configuration, and Ruff rules used in CI.
+Runtime settings hold no signing keys or facilitator credentials.
 
-## Follow-on Architecture Notes
+## Payment models and policy
 
-- Add ADRs when wallet, signer, policy, and x402 subsystems introduce
-  cross-cutting decisions that should not live only in issue threads.
-- Prefer one short note per subsystem or decision so later contributors can
-  locate rationale without reading a large design document.
+- [Domain models](../../substrata/models/domain.py) define assets, payment requests, results, and signing values.
+- [Amount validation](../../substrata/validation.py) validates amounts and converts Stellar's seven decimal places to integer units.
+- [Spend policy](../../substrata/policy.py) checks network, recipient, asset, origin, payment limits, and recorded spend without network access.
+
+Policy evaluation does not reserve a payment. The payment workflow must reserve funds before signing.
+
+## Local records and x402
+
+- [Ledger](../../substrata/storage/ledger.py) records budget reservations and settlement states in SQLite.
+- [Audit log](../../substrata/audit.py) stores redacted events and verifies an append-only hash chain.
+- [x402 models and codecs](../../substrata/x402) define bounded protocol data handling.
+- [Local demo facilitator](../../substrata/x402/demo.py) verifies and settles a loopback-only demonstration scheme. It does not broadcast to Stellar.
+
+## Tests and builds
+
+- [Tests](../../tests) cover package behavior and protocol boundaries.
+- [Project metadata](../../pyproject.toml) defines dependencies, build settings, pytest, and Ruff configuration.
+- [CI workflow](../../.github/workflows/ci.yml) runs tests on supported Python versions and checks the built wheel.

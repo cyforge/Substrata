@@ -12,7 +12,7 @@ Maintainers are responsible for:
 ## Issue Grooming
 
 - Review new issues regularly.
-- Apply the label taxonomy from [docs/triage.md](/Users/Apple/dev/os/mann/Substrata/docs/triage.md).
+- Apply the label taxonomy from [docs/triage.md](triage.md).
 - Close duplicates or convert vague issues into concrete follow-up tasks.
 - Split oversized issues before assigning them to contributors.
 
@@ -25,12 +25,12 @@ Maintainers are responsible for:
 
 ## Release Basics
 
-- Update [CHANGELOG.md](/Users/Apple/dev/os/mann/Substrata/CHANGELOG.md) before cutting a release.
+- Update [CHANGELOG.md](../CHANGELOG.md) before cutting a release.
 - Keep release notes short and user-facing.
 - Record breaking changes clearly while the project is pre-1.0.
 
 ## Support and Security
 
 - Route general support through public repository issues.
-- Route vulnerabilities through [SECURITY.md](/Users/Apple/dev/os/mann/Substrata/SECURITY.md).
+- Route vulnerabilities through [SECURITY.md](../SECURITY.md).
 - If a report is sensitive, avoid discussing details in public until a fix is available.

@@ -1,4 +1,4 @@
-from substrata.cli import main
+from substrata.cli import entrypoint
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(entrypoint())

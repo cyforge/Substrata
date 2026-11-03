@@ -1,0 +1,14 @@
+{
+  "allowed_networks": ["stellar_testnet"],
+  "allowed_recipients": ["GRECIPIENT"],
+  "allowed_assets": [
+    {
+      "code": "XLM",
+      "issuer": null,
+      "contract_id": null
+    }
+  ],
+  "max_payment": "1",
+  "daily_limit": "3",
+  "total_limit": "5"
+}

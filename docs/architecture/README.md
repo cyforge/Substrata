@@ -1,32 +1,21 @@
-# Architecture Notes Index
+# Architecture notes
 
-This directory is the home for committed architecture notes, ADRs, and
-implementation references that explain how the Substrata package is organized.
+Substrata separates typed payment data, policy checks, local accounting, protocol handling, and application entrypoints. These notes describe the current package boundaries.
 
-## Purpose
+## Current notes
 
-- Capture stable design decisions that should survive beyond one issue or pull request.
-- Keep package-boundary notes discoverable for contributors who are new to the repo.
-- Provide one place to link future ADRs and implementation references without
-  duplicating the README.
+- [Package layout and entrypoints](foundation.md)
+- [Quickstart](../quickstart.md)
+- [Development workflow](../development.md)
+- [Project overview](../../README.md)
 
-## Current Notes
+## Package boundaries
 
-- Package foundation overview:
-  [docs/architecture/foundation.md](/Users/Apple/dev/os/mann/Substrata/docs/architecture/foundation.md)
-- Package foundation and entrypoints:
-  [README.md](/Users/Apple/dev/os/mann/Substrata/README.md)
-- Development workflow and local commands:
-  [docs/development.md](/Users/Apple/dev/os/mann/Substrata/docs/development.md)
+- `models` and `validation` define typed payment values and exact amount rules.
+- `policy` evaluates a request against configured limits and observed spend.
+- `storage` records pending, settled, failed, or uncertain payment state.
+- `audit` records redacted events and verifies their integrity chain.
+- `x402` defines protocol models, codecs, facilitator calls, and a local demo scheme.
+- `cli` inspects configuration, policy, and local records.
 
-## Future Additions
-
-- ADRs for payment orchestration, signer integrations, and policy evaluation
-- Service-layer notes for wallet, provider, and x402 flows
-- Reference docs for shared models, validation, and serialization helpers
-
-## Maintenance Notes
-
-- Prefer one note per decision or subsystem instead of a single long design document.
-- Link to canonical implementation or API docs when a note depends on active code.
-- Move issue-only context here only after it is rewritten into durable repository guidance.
+Policy checks do not perform I/O. Storage owns reservations. The local demo scheme only works with loopback resources and does not send Stellar transactions.

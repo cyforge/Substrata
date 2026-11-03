@@ -18,7 +18,7 @@ Substrata is currently a **pre-1.0** project. Expect rapid iteration while the S
 
 ## Changelog Policy
 
-- [CHANGELOG.md](/Users/Apple/dev/os/mann/Substrata/CHANGELOG.md) is the canonical changelog.
+- [CHANGELOG.md](../CHANGELOG.md) is the canonical changelog.
 - Add entries under `Unreleased` until the next tagged release.
 - Group entries into sections such as `Added`, `Changed`, `Fixed`, and `Removed`.
 

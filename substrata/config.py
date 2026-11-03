@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass
+from urllib.parse import urlsplit
 
 from .constants import DEFAULT_ENVIRONMENT, DEFAULT_LOG_LEVEL, DEFAULT_NETWORK, Environment, Network
 from .errors import ConfigurationError
@@ -15,18 +16,23 @@ DEFAULT_HORIZON_URLS = {
 }
 DEFAULT_SIGNER_BACKEND = "local"
 DEFAULT_ASSET_CODE = "XLM"
+VALID_LOG_LEVELS = frozenset({"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"})
 
 
 def _parse_enum(name: str, value: str, enum_type: type[Environment] | type[Network]):
+    if not isinstance(value, str):
+        raise ConfigurationError(f"Invalid {name}. Expected text.", details={"field": name})
     try:
         return enum_type(value)
     except ValueError as exc:
         valid_values = ", ".join(item.value for item in enum_type)
-        message = f"Invalid {name!s} '{value}'. Expected one of: {valid_values}."
-        raise ConfigurationError(message, details={"field": name, "value": value}) from exc
+        message = f"Invalid {name!s}. Expected one of: {valid_values}."
+        raise ConfigurationError(message, details={"field": name}) from exc
 
 
 def _parse_bool(name: str, value: str) -> bool:
+    if not isinstance(value, str):
+        raise ConfigurationError(f"Invalid {name}. Expected a boolean-like value.")
     normalized = value.strip().lower()
     truthy = {"1", "true", "yes", "on"}
     falsy = {"0", "false", "no", "off"}
@@ -37,12 +43,14 @@ def _parse_bool(name: str, value: str) -> bool:
         return False
 
     raise ConfigurationError(
-        f"Invalid {name!s} '{value}'. Expected a boolean-like value.",
-        details={"field": name, "value": value},
+        f"Invalid {name!s}. Expected a boolean-like value.",
+        details={"field": name},
     )
 
 
 def _parse_required_text(name: str, value: str) -> str:
+    if not isinstance(value, str):
+        raise ConfigurationError(f"Invalid {name}. Expected text.", details={"field": name})
     normalized = value.strip()
     if not normalized:
         raise ConfigurationError(
@@ -56,6 +64,11 @@ def _parse_required_text(name: str, value: str) -> str:
 def _parse_optional_text(value: str | None) -> str | None:
     if value is None:
         return None
+    if not isinstance(value, str):
+        raise ConfigurationError(
+            "Invalid default_asset_issuer. Expected text.",
+            details={"field": "default_asset_issuer"},
+        )
 
     normalized = value.strip()
     return normalized or None
@@ -66,15 +79,26 @@ class SubstrataSettings:
     environment: Environment = DEFAULT_ENVIRONMENT
     network: Network = DEFAULT_NETWORK
     log_level: str = DEFAULT_LOG_LEVEL
-    horizon_url: str = DEFAULT_HORIZON_URLS[DEFAULT_NETWORK]
+    horizon_url: str | None = None
     signer_backend: str = DEFAULT_SIGNER_BACKEND
     default_asset_code: str = DEFAULT_ASSET_CODE
     default_asset_issuer: str | None = None
     debug: bool = False
 
     def __post_init__(self) -> None:
+        if not isinstance(self.environment, Environment):
+            raise ConfigurationError("Invalid environment. Use a supported Environment value.")
+        if not isinstance(self.network, Network):
+            raise ConfigurationError("Invalid network. Use a supported Network value.")
+        if not isinstance(self.debug, bool):
+            raise ConfigurationError("Invalid debug. Expected a boolean value.")
         normalized_log_level = _parse_required_text("log_level", self.log_level).upper()
-        normalized_horizon_url = _parse_required_text("horizon_url", self.horizon_url)
+        horizon_url = (
+            DEFAULT_HORIZON_URLS[self.network]
+            if self.horizon_url is None
+            else self.horizon_url
+        )
+        normalized_horizon_url = _parse_required_text("horizon_url", horizon_url)
         normalized_signer_backend = _parse_required_text(
             "signer_backend",
             self.signer_backend,
@@ -84,6 +108,35 @@ class SubstrataSettings:
             self.default_asset_code,
         ).upper()
         normalized_asset_issuer = _parse_optional_text(self.default_asset_issuer)
+
+        if normalized_log_level not in VALID_LOG_LEVELS:
+            raise ConfigurationError(
+                "Invalid log_level. Expected DEBUG, INFO, WARNING, ERROR, or CRITICAL.",
+                details={"field": "log_level"},
+            )
+
+        try:
+            parts = urlsplit(normalized_horizon_url)
+            _ = parts.port
+        except ValueError as exc:
+            raise ConfigurationError(
+                "Invalid horizon_url. Expected a valid HTTP(S) host and port.",
+                details={"field": "horizon_url"},
+            ) from exc
+        if (
+            parts.scheme not in {"http", "https"}
+            or not parts.hostname
+            or any(character.isspace() for character in parts.hostname)
+            or parts.username is not None
+            or parts.password is not None
+            or parts.query
+            or parts.fragment
+        ):
+            raise ConfigurationError(
+                "Invalid horizon_url. Expected an HTTP(S) URL without credentials, query, "
+                "or fragment.",
+                details={"field": "horizon_url"},
+            )
 
         if len(normalized_asset_code) > 12 or not normalized_asset_code.isalnum():
             raise ConfigurationError(
@@ -118,7 +171,7 @@ class SubstrataSettings:
 
     @classmethod
     def from_env(cls, environ: Mapping[str, str] | None = None) -> "SubstrataSettings":
-        source = environ or os.environ
+        source = os.environ if environ is None else environ
 
         environment = _parse_enum(
             "SUBSTRATA_ENVIRONMENT",
