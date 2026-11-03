@@ -56,6 +56,11 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=f"substrata {_version()}")
     commands = parser.add_subparsers(dest="command", required=True)
 
+    demo = commands.add_parser(
+        "demo", help="run one local signed payment without external accounts"
+    )
+    _add_database_argument(demo)
+
     config = commands.add_parser("config", help="validate and inspect runtime settings")
     config.add_subparsers(dest="config_command", required=True).add_parser(
         "show", help="print validated settings"
@@ -277,6 +282,26 @@ def _read_protocol_input(path: Path | None, limit: int) -> bytes:
 
 
 def _run(args: argparse.Namespace) -> int:
+    if args.command == "demo":
+        from .demo import run_local_demo
+
+        response = run_local_demo(args.database)
+        assert response.payment is not None
+        print(
+            json.dumps(
+                {
+                    "mode": "local-demo",
+                    "http_status": response.status_code,
+                    "request_id": response.payment.request_id,
+                    "payment_status": response.payment.status.value,
+                    "transaction_id": response.payment.transaction_id,
+                    "database": str(args.database),
+                },
+                sort_keys=True,
+            )
+        )
+        return 0
+
     if args.command == "config":
         settings = load_settings()
         print(
