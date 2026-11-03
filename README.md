@@ -12,6 +12,16 @@ python -m pip install -e ".[dev]"
 
 ## Quickstart
 
+Run a signed paid request through a local HTTP server:
+
+```bash
+python -m substrata demo --database /tmp/substrata-demo.sqlite3
+```
+
+The demo needs no wallet, API key, or external service. It records a local payment
+of 0.1 demo XLM, retains its ledger and audit records, and stops the server when done.
+Its `demo:` receipt does not represent an on-chain transfer.
+
 Show the CLI commands and validate local settings:
 
 ```bash

@@ -8,6 +8,21 @@ Use Python 3.11 or newer. Install Substrata in a virtual environment:
 python -m pip install -e ".[dev]"
 ```
 
+## Run a local payment
+
+```bash
+python -m substrata demo --database /tmp/substrata-demo.sqlite3
+python -m substrata ledger list --database /tmp/substrata-demo.sqlite3
+python -m substrata audit verify --database /tmp/substrata-demo.sqlite3
+```
+
+The demo starts a loopback HTTP server, receives an x402 challenge, checks spend
+policy, reserves 0.1 demo XLM, signs a local HMAC proof, and retries the request.
+The provider verifies the proof, claims it once, and returns paid content with a
+`demo:` receipt. The server shuts down before the command exits. No external
+account or Stellar transaction is involved. Repeated runs keep their records in
+the same database and share its daily limit of 1 and total limit of 2 demo XLM.
+
 ## Inspect settings
 
 The CLI reads settings from `SUBSTRATA_` environment variables. `config show` prints the validated non-secret settings. Use `doctor --init` to create the local SQLite database. Run `doctor` without `--init` to check an existing database.
