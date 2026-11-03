@@ -586,6 +586,17 @@ def test_cli_errors_are_concise_and_use_nonzero_exit(capsys):
     assert "password" not in output.err
 
 
+def test_corrupted_audit_database_reports_concise_failure(tmp_path, capsys):
+    database = tmp_path / "broken.sqlite3"
+    database.write_bytes(b"invalid sqlite database")
+    assert main(["audit", "verify", "--database", str(database)]) == 2
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert output.err == (
+        "substrata: database operation failed; check database integrity and access\n"
+    )
+
+
 def test_read_only_commands_do_not_create_missing_database(tmp_path, capsys):
     database = tmp_path / "missing.sqlite3"
     policy_path = tmp_path / "policy.json"

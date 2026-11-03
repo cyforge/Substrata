@@ -534,6 +534,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     try:
         return _run(_parser().parse_args(list(argv)))
+    except sqlite3.Error:
+        print(
+            "substrata: database operation failed; check database integrity and access",
+            file=sys.stderr,
+        )
+        return 2
     except (SubstrataError, OSError, ValueError) as exc:
         print(f"substrata: {exc}", file=sys.stderr)
         return 2
