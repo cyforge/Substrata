@@ -10,6 +10,12 @@ in [docs/support.md](docs/support.md).
 
 ### Added
 
+- A complete local paid-request demo over loopback HTTP, available with `substrata demo`.
+- Exact payment models, restrictive spend policies, and persistent atomic budget reservations.
+- A buyer SDK with one paid retry, durable uncertain outcomes, and an async facade.
+- An optional Stellar SDK signer for seven-decimal SEP-41 tokens and bounded authorization lifetimes.
+- Provider ASGI and WSGI middleware with persistent authorization nonce replay protection.
+- Strict x402 v2 wire models, codecs, and a facilitator HTTP client with bounded calls.
 - CLI commands for validated configuration, ledger and audit inspection, and manual ledger reconciliation.
 - CLI policy intersection that combines organization and task limits without changing either file.
 - Ledger lookup and per-currency spend totals for reconciliation.
