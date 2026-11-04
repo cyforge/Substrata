@@ -1,0 +1,50 @@
+---
+title: Agent payments, within your limits
+description: Build paid Python agents with x402, explicit spend policies, and durable payment records on Stellar.
+layout: minimal
+outline: false
+showAskAi: false
+content:
+  width: full
+---
+
+import { Card, Cards } from 'vocs'
+
+<div className="substrata-landing">
+  <div className="substrata-hero">
+    <div className="substrata-intro">
+      <div className="substrata-eyebrow"><span /> PYTHON SDK · STELLAR · x402</div>
+      <h1>Agent payments.<br /><span>Within your limits.</span></h1>
+      <p className="substrata-lede">Let your agent buy what it needs. Set who it can pay, cap its spend, and keep a record of every attempt.</p>
+      <div className="substrata-actions">
+        <a className="substrata-primary" href="/docs/getting-started/installation">Start building <span aria-hidden="true">↗</span></a>
+        <a className="substrata-secondary" href="/docs/getting-started/quickstart">Run the local demo <span aria-hidden="true">→</span></a>
+      </div>
+      <p className="substrata-footnote">Python 3.11+ · No required dependencies in the base SDK</p>
+    </div>
+    <div className="substrata-flow" aria-label="Payment flow: check policy, reserve budget, sign and settle, record outcome">
+      <div className="substrata-flow-top"><span>ONE PAID REQUEST</span><span className="substrata-flow-tag">x402 v2</span></div>
+      <ol>
+        <li><span className="substrata-step">01</span><div><strong>Check the policy</strong><small>Recipient · origin · asset · amount</small></div><span className="substrata-pass" aria-hidden="true">✓</span></li>
+        <li><span className="substrata-step">02</span><div><strong>Reserve the budget</strong><small>Durable SQLite accounting</small></div><span className="substrata-pass" aria-hidden="true">✓</span></li>
+        <li><span className="substrata-step">03</span><div><strong>Sign and settle</strong><small>One paid retry · replay protection</small></div><span className="substrata-pass" aria-hidden="true">✓</span></li>
+        <li><span className="substrata-step">04</span><div><strong>Record the outcome</strong><small>Keep uncertain payments reserved</small></div><span className="substrata-pass" aria-hidden="true">✓</span></li>
+      </ol>
+      <div className="substrata-flow-bottom"><span className="substrata-status-dot" /><span>Policy first. Authorization after.</span></div>
+    </div>
+  </div>
+
+  <div className="substrata-section-heading"><span>BUILD YOUR PAYMENT FLOW</span><p>From a local request to a paid API.</p></div>
+  <Cards>
+    <Card title="Buy a paid resource" description="Handle HTTP 402, enforce a policy, and retry once with payment." to="/docs/guides/buyer-client" />
+    <Card title="Set spend limits" description="Restrict recipients and origins. Combine organization and task budgets." to="/docs/guides/spend-policies" />
+    <Card title="Protect an API" description="Add ASGI or WSGI middleware with verification and durable replay claims." to="/docs/guides/provider-middleware" />
+    <Card title="Recover a payment" description="Inspect pending and uncertain attempts. Reconcile confirmed outcomes." to="/docs/guides/ledger-and-recovery" />
+  </Cards>
+
+  <div className="substrata-testnet">
+    <div><span className="substrata-eyebrow">VERIFIED ON STELLAR TESTNET</span><h2>A real settlement, with evidence.</h2><p>The recorded test transferred 0.001 test XLM through the native asset contract. The guide includes the transaction, ledger, and independent balance checks.</p></div>
+    <a href="/docs/guides/testnet-settlement">Read the testnet report <span aria-hidden="true">→</span></a>
+  </div>
+  <div className="substrata-bottom"><span>Substrata · Python SDK for agent payments</span><a href="https://github.com/cyforge/Substrata">View source on GitHub ↗</a></div>
+</div>
