@@ -71,6 +71,19 @@ jobs:
         if: matrix.python-version == '3.11'
         run: python -m build
 
+      - name: Check source archive contents
+        if: matrix.python-version == '3.11'
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import tarfile
+
+          with tarfile.open(next(Path("dist").glob("*.tar.gz"))) as archive:
+              names = archive.getnames()
+          assert any(name.endswith("/substrata/__init__.py") for name in names)
+          assert not any("/website/" in name for name in names), "Website leaked into SDK archive"
+          PY
+
       - name: Install built wheel and check CLI
         if: matrix.python-version == '3.11'
         run: |

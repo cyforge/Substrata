@@ -38,6 +38,10 @@ substrata = "substrata.cli:entrypoint"
 requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
+[tool.hatch.build.targets.sdist]
+exclude = ["/website"]
+skip-excluded-dirs = true
+
 [tool.pytest.ini_options]
 addopts = "-q"
 testpaths = ["tests"]
