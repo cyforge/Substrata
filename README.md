@@ -39,7 +39,12 @@ python -m substrata config show
 python -m substrata doctor --init --database /tmp/substrata.sqlite3
 ```
 
-The CLI can validate policies, evaluate a request against recorded spend, fetch paid testnet resources, inspect x402 messages, inspect ledger and audit records, and reconcile a payment after an operator confirms its outcome. See [the quickstart](docs/quickstart.md) for command examples.
+The CLI can validate policies, evaluate a request against recorded spend, fetch
+paid resources on Stellar testnet or mainnet, inspect x402 messages, inspect
+ledger and audit records, and reconcile a payment after an operator confirms its
+outcome. Choose the fetch network with `--network stellar_testnet` or
+`--network stellar_mainnet`, or set `SUBSTRATA_NETWORK`. See
+[the quickstart](docs/quickstart.md) for command examples.
 
 ## Documentation
 

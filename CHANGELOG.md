@@ -10,6 +10,8 @@ in [docs/support.md](docs/support.md).
 
 ### Added
 
+- `substrata fetch --network` selects testnet or mainnet, with `SUBSTRATA_NETWORK`
+  as its environment default and testnet as the fallback.
 - A complete local paid-request demo over loopback HTTP, available with `substrata demo`.
 - Exact payment models, restrictive spend policies, and persistent atomic budget reservations.
 - A buyer SDK with one paid retry, durable uncertain outcomes, and an async facade.

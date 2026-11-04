@@ -141,7 +141,37 @@ def test_protocol_inspect_bounds_input_and_rejects_wrong_header(capsys, monkeypa
     assert "Expected PAYMENT-REQUIRED" in capsys.readouterr().err
 
 
-def test_fetch_uses_named_environment_secret_and_durable_client(tmp_path, capsys, monkeypatch):
+@pytest.mark.parametrize(
+    ("network_args", "environment_network", "expected_network"),
+    [
+        pytest.param([], None, "stellar:testnet", id="default-testnet"),
+        pytest.param(["--network", "stellar_testnet"], None, "stellar:testnet", id="flag-testnet"),
+        pytest.param(["--network", "stellar_mainnet"], None, "stellar:pubnet", id="flag-mainnet"),
+        pytest.param([], "stellar_testnet", "stellar:testnet", id="env-testnet"),
+        pytest.param([], "stellar_mainnet", "stellar:pubnet", id="env-mainnet"),
+        pytest.param(
+            ["--network", "stellar_testnet"],
+            "stellar_mainnet",
+            "stellar:testnet",
+            id="flag-overrides-mainnet-env",
+        ),
+        pytest.param(
+            ["--network", "stellar_mainnet"],
+            "stellar_testnet",
+            "stellar:pubnet",
+            id="flag-overrides-testnet-env",
+        ),
+        pytest.param(
+            ["--network", "stellar_mainnet"],
+            "unsupported",
+            "stellar:pubnet",
+            id="flag-overrides-invalid-env",
+        ),
+    ],
+)
+def test_fetch_uses_named_environment_secret_and_durable_client(
+    tmp_path, capsys, monkeypatch, network_args, environment_network, expected_network
+):
     from substrata.client import ClientResponse
 
     database = tmp_path / "fetch.sqlite3"
@@ -152,6 +182,10 @@ def test_fetch_uses_named_environment_secret_and_durable_client(tmp_path, capsys
     secret = "S" * 56
     monkeypatch.setenv("BUYER_SECRET_FOR_TEST", secret)
     monkeypatch.setenv("SUBSTRATA_STELLAR_RPC_URL", "https://rpc.example.test")
+    if environment_network is None:
+        monkeypatch.delenv("SUBSTRATA_NETWORK", raising=False)
+    else:
+        monkeypatch.setenv("SUBSTRATA_NETWORK", environment_network)
     observed: dict[str, object] = {}
 
     class FakeSigner:
@@ -187,6 +221,7 @@ def test_fetch_uses_named_environment_secret_and_durable_client(tmp_path, capsys
             "BUYER_SECRET_FOR_TEST",
             "--request-id",
             "fetch-1",
+            *network_args,
         ]
     )
 
@@ -194,10 +229,43 @@ def test_fetch_uses_named_environment_secret_and_durable_client(tmp_path, capsys
     assert result == 0
     assert output.out == "response body"
     assert "fetch-1" in output.err
+    assert f"network={expected_network}" in output.err
     assert secret not in output.out + output.err
     assert observed["secret"] == secret
-    assert observed["network"] == "stellar:testnet"
+    assert observed["network"] == expected_network
     assert observed["url"] == "https://api.example.test/paid"
+
+
+@pytest.mark.parametrize(
+    ("network_args", "environment_network"),
+    [
+        (["--network", "unsupported"], None),
+        ([], "unsupported"),
+        ([], ""),
+    ],
+)
+def test_fetch_rejects_invalid_network_before_accessing_state(
+    tmp_path, capsys, monkeypatch, network_args, environment_network
+):
+    if environment_network is None:
+        monkeypatch.delenv("SUBSTRATA_NETWORK", raising=False)
+    else:
+        monkeypatch.setenv("SUBSTRATA_NETWORK", environment_network)
+
+    with pytest.raises(SystemExit) as error:
+        main(
+            [
+                "fetch",
+                "https://api.example.test/paid",
+                "--policy",
+                str(tmp_path / "missing-policy.json"),
+                "--database",
+                str(tmp_path / "missing.sqlite3"),
+                *network_args,
+            ]
+        )
+    assert error.value.code == 2
+    assert "--network" in capsys.readouterr().err
 
 
 def test_fetch_requires_secret_environment_variable_without_echoing_secret(

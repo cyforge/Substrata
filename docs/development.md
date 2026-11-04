@@ -72,7 +72,8 @@ content workflow and hosting requirements.
 Settings come from environment variables:
 
 - `SUBSTRATA_ENVIRONMENT`: `local`, `test`, `staging`, or `production`
-- `SUBSTRATA_NETWORK`: `stellar_testnet` or `stellar_mainnet`
+- `SUBSTRATA_NETWORK`: `stellar_testnet` or `stellar_mainnet`; also selects the
+  `fetch` network when `--network` is omitted
 - `SUBSTRATA_LOG_LEVEL`: `DEBUG`, `INFO`, `WARNING`, `ERROR`, or `CRITICAL`
 - `SUBSTRATA_HORIZON_URL`: HTTP(S) URL without credentials, query, or fragment
 - `SUBSTRATA_SIGNER_BACKEND`: signer backend name

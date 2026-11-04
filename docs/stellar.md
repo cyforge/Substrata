@@ -15,6 +15,31 @@ signer = StellarAuthSigner(
 )
 ```
 
+## Select a network
+
+The Python signer accepts `network="stellar:testnet"` for testnet or
+`network="stellar:pubnet"` for mainnet. Its default is `stellar:testnet`.
+Pass an RPC endpoint for the same network with `rpc_url`.
+
+The CLI uses the policy network names:
+
+```bash
+substrata fetch https://api.example.test/paid \
+  --network stellar_mainnet \
+  --policy policy.mainnet.json --database payments.mainnet.sqlite3
+```
+
+Set `SUBSTRATA_STELLAR_RPC_URL` to your mainnet RPC endpoint before running this
+example. Without `--network`, the CLI reads `SUBSTRATA_NETWORK`, then defaults
+to `stellar_testnet`. The flag overrides the environment. See the
+[CLI reference](cli.md#fetch-a-paid-resource) for the full configuration.
+
+The account, token contract, provider, and policy must belong to the selected
+network. In a mainnet policy, allow `stellar_mainnet`; the signer and provider
+use the corresponding x402 identifier, `stellar:pubnet`.
+
+## Signing and settlement
+
 The signer reads the current ledger, simulates the token's `decimals()` function, and accepts only contracts that report seven decimals. This matches Substrata's exact seven-place amount model. It then simulates one SEP-41 `transfer(from, to, amount)` invocation and checks that the token, payer, recipient, amount, authorization credentials, and root invocation match the x402 offer. It rejects source-account and delegated credentials, extra operations, and nested authorizations.
 
 Authorization expires after the smaller of the offer timeout and `max_authorization_seconds`, which defaults to 60 seconds. Operators can lower or raise that local cap up to 3600 seconds. If a paid request has an unknown outcome, the ledger keeps its budget reserved. Reconcile it only after checking whether its signed authorization can still be used; a timeout does not cancel the authorization.
