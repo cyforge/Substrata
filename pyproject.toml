@@ -24,7 +24,7 @@ Issues = "https://github.com/cyforge/Substrata/issues"
 Documentation = "https://github.com/cyforge/Substrata/blob/main/docs/index.md"
 
 [project.optional-dependencies]
-stellar = ["stellar-sdk>=13,<18"]
+stellar = ["stellar-sdk>=17,<18"]
 dev = [
     "pytest>=8.0",
     "ruff>=0.11",
