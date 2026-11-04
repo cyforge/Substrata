@@ -6,3 +6,5 @@ dist/
 src/pages/docs/
 src/pages.gen.ts
 src/pages.gen.tsx
+test-results/
+playwright-report/
