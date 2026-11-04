@@ -2,13 +2,20 @@
 
 ## Install
 
-Use Python 3.11 or newer. Follow [installation](installation.md) to clone the
-repository and create a virtual environment. Run the commands below from that
-checkout. To include the development tools:
+The distribution is `substrata-sdk`; Python imports and the CLI command use
+`substrata`. Use Python 3.11 or newer.
+
+PyPI publication is pending. Follow [installation](installation.md) to clone the
+repository and create a virtual environment. The examples below use files from
+that checkout. Install the SDK and development tools with:
 
 ```bash
 python -m pip install -e ".[dev]"
 ```
+
+After the first PyPI release, `python -m pip install substrata-sdk` installs the
+SDK and CLI. See [installation](installation.md) for the Stellar extra and
+isolated CLI installs.
 
 ## Run a local payment
 

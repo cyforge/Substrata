@@ -37,12 +37,17 @@ The homepage lives in `src/pages/index.mdx`; global styles are in
 npm --prefix website test
 npm --prefix website run check
 npm --prefix website run build
+npm --prefix website run test:browser
 npm --prefix website run preview
 ```
 
 `test` checks link rewriting, `check` runs TypeScript, and `build` checks internal
 links and renders the complete site. CI runs these checks and retains the static
 website as an artifact.
+
+The browser check loads the built payment lifecycle page and verifies its Mermaid
+diagram. From `website/`, run `npx playwright install chromium` once before the
+first browser test. Vocs needs the explicit `mermaid` dependency to render diagrams.
 
 ## Hosting
 

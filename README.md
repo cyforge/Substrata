@@ -4,11 +4,20 @@ Substrata is a Python SDK for agent payments on Stellar. It brings together spen
 
 ## Install
 
-Substrata supports Python 3.11 and newer. Install the SDK and development tools in a virtual environment:
+The distribution is named `substrata-sdk`; Python imports and the CLI command
+use `substrata`. Substrata supports Python 3.11 and newer.
+
+PyPI publication is pending. Follow [installation](docs/installation.md) to clone
+the repository and create a virtual environment, then install from that checkout:
 
 ```bash
 python -m pip install -e ".[dev]"
 ```
+
+After the first PyPI release, install with `python -m pip install substrata-sdk`
+or `python -m pip install "substrata-sdk[stellar]"` for the Stellar integration.
+See [publishing releases](docs/publishing.md) for the first PyPI release and
+trusted publisher setup.
 
 ## Quickstart
 
@@ -46,10 +55,6 @@ npm --prefix website run dev
 
 The website requires Node.js 24 LTS. See [website setup](website/README.md) for
 build and hosting instructions.
-
-The PyPI distribution is named `substrata-sdk`; Python imports and the CLI command
-remain `substrata`. See [publishing releases](docs/publishing.md) for the first
-PyPI release and trusted publisher setup.
 
 ## Development
 

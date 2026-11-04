@@ -34,6 +34,12 @@ jobs:
       - name: Build static documentation
         run: npm run build
 
+      - name: Install documentation test browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Verify rendered payment lifecycle diagram
+        run: npm run test:browser
+
       - name: Retain static website
         uses: actions/upload-artifact@v4
         with:
