@@ -32,6 +32,20 @@ python -m substrata doctor --init --database /tmp/substrata.sqlite3
 
 The CLI can validate policies, evaluate a request against recorded spend, fetch paid testnet resources, inspect x402 messages, inspect ledger and audit records, and reconcile a payment after an operator confirms its outcome. See [the quickstart](docs/quickstart.md) for command examples.
 
+## Documentation
+
+The [documentation index](docs/index.md) covers installation, buyer and provider
+flows, spend policies, payment recovery, and the Python API. A Vocs website makes
+the same guides searchable and browsable:
+
+```bash
+npm --prefix website ci
+npm --prefix website run dev
+```
+
+The website requires Node.js 24 LTS. See [website setup](website/README.md) for
+build and hosting instructions.
+
 ## Development
 
 Run the tests and lint checks:

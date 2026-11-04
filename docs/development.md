@@ -42,6 +42,31 @@ python -m substrata doctor --init --database /tmp/substrata.sqlite3
 
 See [the quickstart](quickstart.md) for ledger and audit commands.
 
+## Documentation website
+
+Use Node.js 24 LTS to run the Vocs site:
+
+```bash
+npm --prefix website ci
+npm --prefix website run dev
+```
+
+Edit the source Markdown in `docs/`; `website/content.json` controls its routes
+and sidebar position. Restart the dev server or run `npm --prefix website run sync`
+after changing source Markdown. Generated MDX pages stay out of Git.
+
+Before committing website changes:
+
+```bash
+npm --prefix website test
+npm --prefix website run check
+npm --prefix website run build
+```
+
+The build checks internal links and produces static files in
+`website/dist/public/`. See [website setup](../website/README.md) for the full
+content workflow and hosting requirements.
+
 ## Settings
 
 Settings come from environment variables:

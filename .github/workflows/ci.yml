@@ -7,6 +7,40 @@ on:
       - main
 
 jobs:
+  docs:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: website
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+
+      - name: Install documentation dependencies
+        run: npm ci
+
+      - name: Check documentation links and types
+        run: |
+          npm test
+          npm run check
+
+      - name: Build static documentation
+        run: npm run build
+
+      - name: Retain static website
+        uses: actions/upload-artifact@v4
+        with:
+          name: documentation-site
+          path: website/dist/public
+          if-no-files-found: error
+
   test:
     runs-on: ubuntu-latest
     strategy:
