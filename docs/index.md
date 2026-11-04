@@ -11,6 +11,7 @@
 - [Python API reference](api-reference.md): client, policy, storage, and middleware entry points.
 - [Command line reference](cli.md): inspect policies, payments, and protocol data.
 - [x402 protocol](x402.md): wire headers, facilitator requests, and receipt handling.
+- [Publishing releases](publishing.md): PyPI trusted publishing for the SDK and CLI.
 - [Development](development.md): environment setup, checks, and settings.
 - [Architecture notes](architecture/README.md): package structure and design notes.
 - [Support and versioning](support.md): supported versions and release policy.

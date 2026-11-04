@@ -16,5 +16,6 @@
   { "section": "Project", "text": "Contributing", "source": "CONTRIBUTING.md", "route": "project/contributing" },
   { "section": "Project", "text": "Support", "source": "docs/support.md", "route": "project/support" },
   { "section": "Project", "text": "Security", "source": "SECURITY.md", "route": "project/security" },
-  { "section": "Project", "text": "Changelog", "source": "CHANGELOG.md", "route": "project/changelog" }
+  { "section": "Project", "text": "Changelog", "source": "CHANGELOG.md", "route": "project/changelog" },
+  { "section": "Project", "text": "Publishing releases", "source": "docs/publishing.md", "route": "project/publishing" }
 ]

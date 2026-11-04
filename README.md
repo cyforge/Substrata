@@ -46,6 +46,10 @@ npm --prefix website run dev
 The website requires Node.js 24 LTS. See [website setup](website/README.md) for
 build and hosting instructions.
 
+The PyPI distribution is named `substrata-sdk`; Python imports and the CLI command
+remain `substrata`. See [publishing releases](docs/publishing.md) for the first
+PyPI release and trusted publisher setup.
+
 ## Development
 
 Run the tests and lint checks:
