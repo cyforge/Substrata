@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import pytest
+
 from substrata.provider.gate import PaidRoute, PaymentGate
 from substrata.storage import ReplayStore
 from substrata.x402.demo import create_local_demo_pair
@@ -124,6 +126,7 @@ def test_invalid_receipt_never_returns_paid_result() -> None:
 
 
 def _stellar_payload(memo: bytes = b""):
+    pytest.importorskip("stellar_sdk")
     from stellar_sdk import Address, Keypair, scval, xdr
 
     payer_key = Keypair.random()
