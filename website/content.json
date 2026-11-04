@@ -1,0 +1,20 @@
+[
+  { "section": "Get started", "text": "Installation", "source": "docs/installation.md", "route": "getting-started/installation" },
+  { "section": "Get started", "text": "Quickstart", "source": "docs/quickstart.md", "route": "getting-started/quickstart" },
+  { "section": "Get started", "text": "Payment lifecycle", "source": "docs/architecture/payments.md", "route": "getting-started/payment-lifecycle" },
+  { "section": "Build with Substrata", "text": "Buyer client", "source": "docs/client.md", "route": "guides/buyer-client" },
+  { "section": "Build with Substrata", "text": "Spend policies", "source": "docs/policies.md", "route": "guides/spend-policies" },
+  { "section": "Build with Substrata", "text": "Ledger and recovery", "source": "docs/ledger.md", "route": "guides/ledger-and-recovery" },
+  { "section": "Build with Substrata", "text": "Provider middleware", "source": "docs/provider.md", "route": "guides/provider-middleware" },
+  { "section": "Build with Substrata", "text": "Stellar signer", "source": "docs/stellar.md", "route": "guides/stellar-signer" },
+  { "section": "Build with Substrata", "text": "Verified testnet settlement", "source": "docs/testnet-settlement.md", "route": "guides/testnet-settlement" },
+  { "section": "Reference", "text": "Python API", "source": "docs/api-reference.md", "route": "reference/python-api" },
+  { "section": "Reference", "text": "CLI commands", "source": "docs/cli.md", "route": "reference/cli" },
+  { "section": "Reference", "text": "x402 protocol", "source": "docs/x402.md", "route": "reference/x402" },
+  { "section": "Project", "text": "Development", "source": "docs/development.md", "route": "project/development" },
+  { "section": "Project", "text": "Architecture", "source": "docs/architecture/foundation.md", "route": "project/architecture" },
+  { "section": "Project", "text": "Contributing", "source": "CONTRIBUTING.md", "route": "project/contributing" },
+  { "section": "Project", "text": "Support", "source": "docs/support.md", "route": "project/support" },
+  { "section": "Project", "text": "Security", "source": "SECURITY.md", "route": "project/security" },
+  { "section": "Project", "text": "Changelog", "source": "CHANGELOG.md", "route": "project/changelog" }
+]

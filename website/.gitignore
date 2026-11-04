@@ -1,0 +1,8 @@
+node_modules/
+.vocs/
+dist/
+.vercel/
+.waku/
+src/pages/docs/
+src/pages.gen.ts
+src/pages.gen.tsx
