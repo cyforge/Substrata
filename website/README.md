@@ -57,6 +57,7 @@ Set the project root to the repository root so the source Markdown remains
 available. `VERCEL_PROJECT_PRODUCTION_URL` supplies the canonical hostname for
 the sitemap and metadata.
 
-The Vercel project is `substrata-docs` in `ikemhoods-projects`. Until its Git
+The public site is [substrata-docs.vercel.app](https://substrata-docs.vercel.app).
+Its Vercel project is `substrata-docs` in `ikemhoods-projects`. Until its Git
 integration has access to `cyforge/Substrata`, deployments require a direct
 source upload. The current routes assume hosting at the domain root.

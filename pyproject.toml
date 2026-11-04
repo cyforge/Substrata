@@ -21,7 +21,7 @@ classifiers = [
 [project.urls]
 Repository = "https://github.com/cyforge/Substrata"
 Issues = "https://github.com/cyforge/Substrata/issues"
-Documentation = "https://github.com/cyforge/Substrata/blob/main/docs/index.md"
+Documentation = "https://substrata-docs.vercel.app"
 
 [project.optional-dependencies]
 stellar = ["stellar-sdk>=17,<18"]

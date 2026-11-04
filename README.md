@@ -34,9 +34,10 @@ The CLI can validate policies, evaluate a request against recorded spend, fetch 
 
 ## Documentation
 
-The [documentation index](docs/index.md) covers installation, buyer and provider
-flows, spend policies, payment recovery, and the Python API. A Vocs website makes
-the same guides searchable and browsable:
+The [documentation website](https://substrata-docs.vercel.app) covers installation,
+buyer and provider flows, spend policies, payment recovery, and the Python API.
+The [Markdown index](docs/index.md) links to the same guides in this repository.
+To run the Vocs website locally:
 
 ```bash
 npm --prefix website ci
