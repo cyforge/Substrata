@@ -47,6 +47,17 @@ def test_console_entrypoint_forwards_process_arguments(monkeypatch, capsys):
     assert capsys.readouterr().out.startswith("substrata ")
 
 
+def test_cli_version_reads_the_sdk_distribution(monkeypatch, capsys):
+    def installed_version(distribution):
+        assert distribution == "substrata-sdk"
+        return "1.2.3"
+
+    monkeypatch.setattr("substrata.cli.version", installed_version)
+    with pytest.raises(SystemExit):
+        main(["--version"])
+    assert capsys.readouterr().out == "substrata 1.2.3\n"
+
+
 def test_package_and_compatibility_entrypoints_forward_arguments():
     repo_root = Path(__file__).resolve().parents[1]
     for command in ([sys.executable, "-m", "substrata"], [sys.executable, "main.py"]):

@@ -8,7 +8,7 @@ from .constants import DEFAULT_ENVIRONMENT, DEFAULT_LOG_LEVEL, DEFAULT_NETWORK, 
 from .errors import ConfigurationError, IntegrationError, SubstrataError, ValidationError
 
 try:
-    __version__ = metadata.version("substrata")
+    __version__ = metadata.version("substrata-sdk")
 except metadata.PackageNotFoundError:
     __version__ = "0.1.0"
 

@@ -46,7 +46,7 @@ _SENSITIVE_KEY_PARTS = (
 
 def _version() -> str:
     try:
-        return version("substrata")
+        return version("substrata-sdk")
     except PackageNotFoundError:
         return __version__
 
