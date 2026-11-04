@@ -32,7 +32,7 @@ dev = [
 ]
 
 [project.scripts]
-substrata = "substrata.cli:main"
+substrata = "substrata.cli:entrypoint"
 
 [build-system]
 requires = ["hatchling>=1.27"]
