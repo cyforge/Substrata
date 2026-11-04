@@ -84,16 +84,28 @@ python -m substrata policy intersect \
 
 ## Fetch a paid resource
 
-`fetch` performs a GET with the testnet Stellar authorization signer. It needs the Soroban RPC URL and a secret seed stored in an environment variable. The default seed variable is `SUBSTRATA_STELLAR_SECRET_SEED`; `--secret-env-var` accepts a variable name when your secret manager uses another name. The command requires an initialized database and policy file. It prints the response body to stdout and request/payment details to stderr.
+`fetch` performs a GET with the Stellar authorization signer. Select testnet or
+mainnet with `--network stellar_testnet` or `--network stellar_mainnet`. If the
+flag is omitted, it reads `SUBSTRATA_NETWORK`, defaulting to `stellar_testnet`.
+
+It needs a Soroban RPC URL for that network and a secret seed stored in an
+environment variable. The default seed variable is `SUBSTRATA_STELLAR_SECRET_SEED`;
+`--secret-env-var` accepts a variable name when your secret manager uses another
+name. The command requires an initialized database and policy file. It prints
+the response body to stdout and request/payment details to stderr.
 
 ```bash
 python -m substrata fetch https://api.example.test/paid \
+  --network stellar_testnet \
   --policy examples/spend-policy.json \
   --database /tmp/substrata.sqlite3 \
   --request-id paid-request-123
 ```
 
-Load the seed through your environment's secret manager before running the command. Never pass a seed as a command-line argument. This path uses Stellar testnet and accepts only offers supported by the signer and policy.
+Load the seed through your environment's secret manager before running the
+command. Never pass a seed as a command-line argument. The selected network,
+RPC endpoint, account, provider offer, and policy must agree. See the
+[CLI reference](cli.md#fetch-a-paid-resource) for a mainnet example and precedence rules.
 
 ## Inspect x402 data
 

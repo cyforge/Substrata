@@ -75,14 +75,48 @@ substrata protocol inspect response --file receipt.json
 
 Omit `--file` to read stdin. `--format header` expects an encoded HTTP payment header; the default expects JSON. Signed payload details are redacted unless you explicitly pass `--show-payload`.
 
-## Fetch a paid testnet resource
+## Fetch a paid resource
 
 ```sh
-substrata fetch http://127.0.0.1:8091/paid \
+substrata fetch https://api.example.test/paid \
+  --network stellar_testnet \
   --policy policy.json --database payments.sqlite3 \
   --request-id fetch-001 --rpc-url https://soroban-testnet.stellar.org
 ```
 
-This command requires `.[stellar]`, a funded Stellar testnet account, a matching policy, and a compatible paid provider. Set the seed in `SUBSTRATA_STELLAR_SECRET_SEED` through your secret manager or shell environment. Pass a different environment variable name with `--secret-env-var`; never pass the seed itself as a command argument.
+Choose the network with `--network`. If the flag is omitted, the command reads
+`SUBSTRATA_NETWORK`. With neither set, it uses `stellar_testnet`.
+
+| CLI, environment, and policy value | Signer and x402 network |
+| --- | --- |
+| `stellar_testnet` | `stellar:testnet` |
+| `stellar_mainnet` | `stellar:pubnet` |
+
+For mainnet, configure `SUBSTRATA_STELLAR_RPC_URL` with your mainnet RPC endpoint
+and use a mainnet policy:
+
+```sh
+substrata fetch https://api.example.test/paid \
+  --network stellar_mainnet \
+  --policy policy.mainnet.json --database payments.mainnet.sqlite3 \
+  --request-id mainnet-fetch-001
+```
+
+Alternatively, set `SUBSTRATA_NETWORK=stellar_mainnet` in the environment and
+omit `--network`. An explicit flag overrides the environment, including an
+invalid environment value. Unsupported network values are rejected before
+accessing payment state or sending requests. The command logs the selected x402
+network and request ID to stderr.
+
+This command requires the optional Stellar dependency, an account funded on the
+selected network, a matching policy, and a compatible paid provider. The policy's
+`allowed_networks` must include the selected network. Its token contract,
+recipient, and allowed origin must match the provider's offer.
+
+Pass `--rpc-url` or set `SUBSTRATA_STELLAR_RPC_URL` to an RPC endpoint for that
+network. The command does not choose a different endpoint when the network
+changes. Set the seed in `SUBSTRATA_STELLAR_SECRET_SEED` through your secret
+manager or shell environment. Pass a different environment variable name with
+`--secret-env-var`; never pass the seed itself as a command argument.
 
 See [Stellar signing](stellar.md) for setup and [testnet settlement](testnet-settlement.md) for the complete test procedure.
