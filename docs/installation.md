@@ -1,5 +1,8 @@
 # Installation
 
+The distribution is named `substrata-sdk`. It provides the Python package
+`substrata` and the `substrata` console command.
+
 Substrata requires Python 3.11 or newer. The base SDK has no required third-party
 Python dependencies. Stellar signing and transaction parsing use an optional extra.
 
@@ -26,6 +29,36 @@ substrata --help
 
 These instructions install the code from this repository. They do not assume a
 published package on PyPI.
+
+## Install from PyPI after the first release
+
+PyPI publication is pending. Use the repository installation above until the
+first release is available. After publication, install the SDK with:
+
+```bash
+python -m pip install substrata-sdk
+```
+
+Include the optional Stellar integration with:
+
+```bash
+python -m pip install "substrata-sdk[stellar]"
+```
+
+For an isolated CLI install after publication, use
+`uv tool install substrata-sdk` or `pipx install substrata-sdk`. Both install the
+`substrata` command. For paid Stellar requests, include the extra:
+`uv tool install "substrata-sdk[stellar]"`.
+
+Import the SDK as `substrata`:
+
+```python
+import substrata
+
+print(substrata.__version__)
+```
+
+See [publishing releases](publishing.md) for the release workflow and PyPI setup.
 
 ## Run a local payment
 
