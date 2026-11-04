@@ -2,9 +2,11 @@ import { defineConfig } from 'vocs/config'
 import pages from './content.json' with { type: 'json' }
 
 const sections = [...new Set(pages.map((page) => page.section))]
+const productionHost = process.env.VERCEL_PROJECT_PRODUCTION_URL
 
 export default defineConfig({
   title: 'Substrata',
+  ...(productionHost ? { baseUrl: `https://${productionHost}` } : {}),
   titleTemplate: '%s · Substrata',
   description: 'Python SDK for policy-controlled agent payments on Stellar. Build with x402, durable budgets, and auditable payment flows.',
   renderStrategy: 'full-static',

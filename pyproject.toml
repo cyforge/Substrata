@@ -1,5 +1,5 @@
 [project]
-name = "substrata"
+name = "substrata-sdk"
 version = "0.1.0"
 description = "Python-first AgentPay SDK for autonomous machine-to-machine payments on Stellar"
 readme = "README.md"
@@ -41,6 +41,9 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.sdist]
 exclude = ["/website"]
 skip-excluded-dirs = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["substrata"]
 
 [tool.pytest.ini_options]
 addopts = "-q"
