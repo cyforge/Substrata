@@ -1,5 +1,8 @@
 # Stellar authorization signer
 
+See the [verified testnet settlement](testnet-settlement.md) for a confirmed live
+XLM transfer, transaction hash, independent balance checks, and tested components.
+
 `StellarAuthSigner` supports x402 v2 `exact` payments for SEP-41 Soroban token contracts on Stellar testnet and public network. Install the optional `stellar-sdk` dependency to use it. The base Substrata package imports no Stellar SDK modules until signing starts.
 
 ```python
