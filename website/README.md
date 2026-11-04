@@ -52,6 +52,11 @@ indexes and `404.html` as its error page. It does not require a Python or Node.j
 server. Keep the generated `RSC/` directory and all other assets in the upload;
 client navigation uses them.
 
-No production hostname is configured. When a hostname is chosen, set `baseUrl`
-in `vocs.config.ts` to enable the sitemap and absolute metadata URLs, then
-rebuild. The current routes assume hosting at the domain root.
+The repository-root `vercel.json` builds this site on Vercel using Node.js 24.
+Set the project root to the repository root so the source Markdown remains
+available. `VERCEL_PROJECT_PRODUCTION_URL` supplies the canonical hostname for
+the sitemap and metadata.
+
+The Vercel project is `substrata-docs` in `ikemhoods-projects`. Until its Git
+integration has access to `cyforge/Substrata`, deployments require a direct
+source upload. The current routes assume hosting at the domain root.
