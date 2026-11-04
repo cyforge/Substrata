@@ -2,6 +2,7 @@
 
 The SDK documentation runs on [Vocs](https://vocs.dev). Use Node.js 24 LTS and npm.
 The Python package works independently of this website.
+Python distributions exclude the website sources, build output, and Node.js dependencies.
 
 ## Run locally
 
