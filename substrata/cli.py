@@ -250,6 +250,15 @@ def _load_policy(path: Path) -> SpendPolicy:
         )
     except RecursionError as exc:
         raise ValueError("Policy JSON exceeds supported nesting depth.") from exc
+    pending = [(value, 0)]
+    while pending:
+        node, depth = pending.pop()
+        if depth > 64:
+            raise ValueError("Policy JSON exceeds supported nesting depth.")
+        if isinstance(node, dict):
+            pending.extend((item, depth + 1) for item in node.values())
+        elif isinstance(node, list):
+            pending.extend((item, depth + 1) for item in node)
     return SpendPolicy.from_dict(value)
 
 
