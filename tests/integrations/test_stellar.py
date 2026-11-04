@@ -178,7 +178,9 @@ def test_signer_supports_only_sponsored_exact_offer_on_configured_network():
 class MockStellarRPC:
     """BaseSyncClient-backed offline Soroban RPC fixture."""
 
-    def __new__(cls, decimals: int):
+    def __new__(
+        cls, decimals: int, network_passphrase: str = Network.TESTNET_NETWORK_PASSPHRASE
+    ):
         from stellar_sdk.client.base_sync_client import BaseSyncClient
 
         class Client(BaseSyncClient):
@@ -192,7 +194,7 @@ class MockStellarRPC:
             def post(self, url, data=None, json_data=None):
                 import json
 
-                from stellar_sdk import Address, Keypair, Network, scval, xdr
+                from stellar_sdk import Address, Keypair, scval, xdr
                 from stellar_sdk.transaction_envelope import TransactionEnvelope
                 from stellar_sdk.xdr import LedgerEntryData
 
@@ -235,7 +237,7 @@ class MockStellarRPC:
                     }
                 elif method == "simulateTransaction":
                     envelope = TransactionEnvelope.from_xdr(
-                        params["transaction"], Network.TESTNET_NETWORK_PASSPHRASE
+                        params["transaction"], network_passphrase
                     )
                     operation = envelope.transaction.operations[0]
                     host_function = operation.host_function
@@ -313,18 +315,30 @@ class MockStellarRPC:
         return Client()
 
 
-def _sign_with_rpc(decimals: int, timeout: int = 10, max_authorization_seconds: int = 60):
+def _sign_with_rpc(
+    decimals: int,
+    timeout: int = 10,
+    max_authorization_seconds: int = 60,
+    *,
+    network: str = "stellar:testnet",
+):
     payer = Keypair.random()
-    rpc = MockStellarRPC(decimals)
+    passphrase = (
+        Network.TESTNET_NETWORK_PASSPHRASE
+        if network == "stellar:testnet"
+        else Network.PUBLIC_NETWORK_PASSPHRASE
+    )
+    rpc = MockStellarRPC(decimals, passphrase)
     signer = StellarAuthSigner(
         payer.secret,
-        rpc_url="https://soroban-testnet.stellar.org",
+        rpc_url="https://rpc.example.test",
+        network=network,
         max_authorization_seconds=max_authorization_seconds,
         request_client=rpc,
     )
     offer = PaymentRequirements(
         "exact",
-        "stellar:testnet",
+        network,
         "12500000",
         ASSET,
         Keypair.random().public_key,
@@ -360,13 +374,20 @@ def test_signer_rejects_nonseven_decimal_token_using_mocked_rpc_before_transfer(
     assert rpc.methods.count("simulateTransaction") == 1
 
 
-def test_public_signer_builds_and_signs_auth_xdr_with_mocked_rpc():
+@pytest.mark.parametrize(
+    ("network", "passphrase"),
+    [
+        ("stellar:testnet", Network.TESTNET_NETWORK_PASSPHRASE),
+        ("stellar:pubnet", Network.PUBLIC_NETWORK_PASSPHRASE),
+    ],
+)
+def test_public_signer_builds_and_signs_auth_xdr_with_mocked_rpc(network, passphrase):
     from stellar_sdk.auth import authorization_payload_hash, build_authorization_preimage
     from stellar_sdk.transaction_envelope import TransactionEnvelope
 
-    signer, rpc, offer, payload = _sign_with_rpc(7)
+    signer, rpc, offer, payload = _sign_with_rpc(7, network=network)
     envelope = TransactionEnvelope.from_xdr(
-        payload.payload["transaction"], Network.TESTNET_NETWORK_PASSPHRASE
+        payload.payload["transaction"], passphrase
     )
     operation = envelope.transaction.operations[0]
     assert envelope.signatures == []
@@ -380,7 +401,7 @@ def test_public_signer_builds_and_signs_auth_xdr_with_mocked_rpc():
     preimage = build_authorization_preimage(
         entry,
         credentials.signature_expiration_ledger.uint32,
-        Network.TESTNET_NETWORK_PASSPHRASE,
+        passphrase,
     )
     signer._load_keypair().verify(authorization_payload_hash(preimage), signature)
     assert rpc.methods.count("simulateTransaction") == 2

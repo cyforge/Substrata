@@ -19,9 +19,9 @@ from uuid import uuid4
 from . import __version__
 from .audit import AuditLog
 from .config import load_settings
-from .constants import Network
+from .constants import DEFAULT_NETWORK, Network
 from .errors import SubstrataError
-from .models import Asset, PaymentRequest
+from .models import Asset, PaymentRequest, network_to_caip
 from .policy import PolicyEngine, SpendPolicy
 from .storage import Ledger, LedgerStatus
 from .x402.codec import MAX_HEADER_CHARS, MAX_JSON_BYTES, decode_header, decode_json
@@ -144,11 +144,18 @@ def _parser() -> argparse.ArgumentParser:
         help="include signed payment payload in output (signature kind only)",
     )
 
-    fetch = commands.add_parser("fetch", help="make a policy-controlled Stellar testnet GET")
+    fetch = commands.add_parser("fetch", help="make a policy-controlled Stellar GET")
     fetch.add_argument("url")
     fetch.add_argument("--policy", type=Path, required=True)
     fetch.add_argument("--database", type=Path, required=True)
     fetch.add_argument("--request-id")
+    fetch.add_argument(
+        "--network",
+        type=Network,
+        choices=list(Network),
+        default=os.environ.get("SUBSTRATA_NETWORK", DEFAULT_NETWORK.value),
+        help=f"payment network (default: SUBSTRATA_NETWORK or {DEFAULT_NETWORK.value})",
+    )
     fetch.add_argument(
         "--secret-env-var",
         type=_environment_name,
@@ -505,8 +512,9 @@ def _run(args: argparse.Namespace) -> int:
         if args.request_id is not None and not args.request_id.strip():
             raise ValueError("--request-id must not be blank.")
         request_id = args.request_id or str(uuid4())
-        signer = StellarAuthSigner(secret_seed, rpc_url=rpc_url, network="stellar:testnet")
-        print(f"request_id={request_id}", file=sys.stderr)
+        network = network_to_caip(args.network)
+        signer = StellarAuthSigner(secret_seed, rpc_url=rpc_url, network=network)
+        print(f"request_id={request_id} network={network}", file=sys.stderr)
         try:
             with Ledger(args.database) as ledger, AuditLog(args.database) as audit_log:
                 with BuyerClient(
