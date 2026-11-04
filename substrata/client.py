@@ -554,7 +554,8 @@ class AsyncBuyerClient:
         if self._close_task is None:
             self._closed = True
             self._close_task = asyncio.create_task(self._finish_close())
-        await asyncio.shield(self._close_task)
+        await asyncio.wait({self._close_task})
+        self._close_task.result()
 
     async def _run(
         self, operation: Callable[..., ClientResponse], *args: object, **kwargs: object
@@ -562,7 +563,10 @@ class AsyncBuyerClient:
         task = asyncio.create_task(asyncio.to_thread(operation, *args, **kwargs))
         self._inflight.add(task)
         task.add_done_callback(self._task_done)
-        return await asyncio.shield(task)
+        # Cancelling this wait leaves payment I/O running. Unlike shield(), wait()
+        # does not log a detached worker's handled exception on Python 3.14.
+        await asyncio.wait({task})
+        return task.result()
 
     def _task_done(self, task: asyncio.Task[ClientResponse]) -> None:
         self._inflight.discard(task)
