@@ -2,7 +2,9 @@
 
 ## Install
 
-Use Python 3.11 or newer. Install Substrata in a virtual environment:
+Use Python 3.11 or newer. Follow [installation](installation.md) to clone the
+repository and create a virtual environment. Run the commands below from that
+checkout. To include the development tools:
 
 ```bash
 python -m pip install -e ".[dev]"
