@@ -2,17 +2,25 @@
 
 Substrata is a Python SDK for agent payments on Stellar. It brings together spend policy, a durable payment ledger, audit records, and x402 payment flows.
 
+[Documentation](https://substrata-docs.vercel.app) · [Python API](https://substrata-docs.vercel.app/docs/reference/python-api) · [CLI reference](https://substrata-docs.vercel.app/docs/reference/cli)
+
 ## Install
 
 The distribution is named `substrata-sdk`; Python imports and the CLI command
 use `substrata`. Substrata supports Python 3.11 and newer.
 
-PyPI publication is pending. Follow [installation](docs/installation.md) to clone
-the repository and create a virtual environment, then install from that checkout:
+PyPI publication is pending. Install from this repository in a virtual environment:
 
 ```bash
-python -m pip install -e ".[dev]"
+gh repo clone cyforge/Substrata
+cd Substrata
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install -e .
 ```
+
+For Stellar signing, run `python -m pip install -e ".[stellar]"`. See
+[installation](docs/installation.md) for Windows setup and isolated CLI installs.
 
 After the first PyPI release, install with `python -m pip install substrata-sdk`
 or `python -m pip install "substrata-sdk[stellar]"` for the Stellar integration.
@@ -46,6 +54,39 @@ outcome. Choose the fetch network with `--network stellar_testnet` or
 `--network stellar_mainnet`, or set `SUBSTRATA_NETWORK`. See
 [the quickstart](docs/quickstart.md) for command examples.
 
+## Choose a payment network
+
+`fetch` selects its network in this order: `--network`, `SUBSTRATA_NETWORK`, then
+the `stellar_testnet` default. The RPC endpoint, funded account, provider offer,
+and policy must match that network.
+
+| Network | CLI, environment, and policy value | Python signer and x402 value |
+| --- | --- | --- |
+| Testnet | `stellar_testnet` | `stellar:testnet` |
+| Mainnet | `stellar_mainnet` | `stellar:pubnet` |
+
+After installing the Stellar extra, initialize a database and fetch from your
+paid HTTPS provider. Replace the example URL and supply a policy for that provider:
+
+```bash
+substrata doctor --init --database payments.sqlite3
+substrata fetch https://api.example.test/paid \
+  --network stellar_testnet \
+  --rpc-url https://soroban-testnet.stellar.org \
+  --policy policy.json --database payments.sqlite3
+```
+
+Load `SUBSTRATA_STELLAR_SECRET_SEED` through your secret manager or shell
+environment. `--secret-env-var` accepts a different variable name. Set
+`--rpc-url` or `SUBSTRATA_STELLAR_RPC_URL` to the RPC endpoint for your network;
+changing `--network` does not change that endpoint or grant policy permissions.
+
+For mainnet, select `--network stellar_mainnet` and configure a mainnet RPC,
+account, token contract, recipient, and policy. Python applications select the
+same network with `StellarAuthSigner(..., network="stellar:pubnet", rpc_url=...)`.
+See [network configuration](docs/cli.md#fetch-a-paid-resource) and
+[Stellar signing](docs/stellar.md#select-a-network) for details.
+
 ## Documentation
 
 The [documentation website](https://substrata-docs.vercel.app) covers installation,
@@ -66,6 +107,7 @@ build and hosting instructions.
 Run the tests and lint checks:
 
 ```bash
+python -m pip install -e ".[dev,stellar]"
 python -m pytest
 python -m ruff check .
 ```
@@ -74,7 +116,19 @@ See [development setup](docs/development.md) and the [documentation index](docs/
 
 ## Project status
 
-Substrata includes local policy, ledger, audit, x402, client, and provider components. The `substrata-demo` payment scheme is for loopback development only. It does not send Stellar transactions. Production Stellar signing and live settlement require an explicitly configured signer and facilitator.
+Substrata is pre-1.0. The base SDK has no required third-party Python dependencies;
+the Stellar integration uses the optional `stellar` extra. Live payments require
+an explicitly configured signer and compatible facilitator.
+
+| Flow | Verified behavior |
+| --- | --- |
+| Local demo | Signed loopback requests with ledger and audit records; no on-chain transfer |
+| Stellar testnet | Confirmed 0.001 test XLM settlement through the native asset contract |
+| Stellar mainnet | Configurable SDK and CLI; authorization verified with offline RPC fixtures; live settlement not yet tested |
+
+The [testnet settlement report](docs/testnet-settlement.md) includes the confirmed
+transaction and independent balance checks. That run covered native XLM with a
+locally hosted official facilitator; it did not exercise USDC or managed facilitators.
 
 ## Project links
 
